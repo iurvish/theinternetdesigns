@@ -3,6 +3,8 @@ import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { AdminSignOutButton } from "./sign-out-button";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminLayout({
   children,
 }: {

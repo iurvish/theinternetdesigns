@@ -14,6 +14,9 @@ const cdnHost = (() => {
 })();
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: __dirname,
+  },
   images: {
     remotePatterns: [
       // X user avatars (used only during ingestion; we re-host to R2 afterwards,
