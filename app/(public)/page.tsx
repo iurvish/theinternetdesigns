@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { PostGrid, PostGridSkeleton } from "@/features/posts/post-grid";
 import { getRecentPosts } from "@/features/posts/queries";
+import { SetupRequired } from "@/components/setup-required";
 
 export default function HomePage() {
   return (
@@ -21,6 +22,10 @@ export default function HomePage() {
 }
 
 async function HomeFeed() {
-  const posts = await getRecentPosts({ limit: 60 });
-  return <PostGrid posts={posts} />;
+  try {
+    const posts = await getRecentPosts({ limit: 60 });
+    return <PostGrid posts={posts} />;
+  } catch (err) {
+    return <SetupRequired detail={err instanceof Error ? err.message : String(err)} />;
+  }
 }

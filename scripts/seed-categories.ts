@@ -1,5 +1,8 @@
-import "dotenv/config";
+import { config } from "dotenv";
 import { randomUUID } from "node:crypto";
+
+config({ path: ".env.local" });
+
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
