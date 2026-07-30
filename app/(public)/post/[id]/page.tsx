@@ -50,12 +50,16 @@ export default async function PostPage({
             key={m.id}
             className="overflow-hidden rounded-2xl border border-border/60 bg-muted"
           >
-            {m.kind === "video" ? (
+            {m.kind === "video" || m.kind === "gif" ? (
               <video
                 src={m.originalUrl}
                 poster={m.posterUrl ?? undefined}
-                controls
+                controls={m.kind === "video"}
+                autoPlay={m.kind === "gif"}
+                loop={m.kind === "gif"}
+                muted={m.kind === "gif"}
                 playsInline
+                preload="metadata"
                 className="w-full"
               />
             ) : (

@@ -1,18 +1,20 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { asc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { categories } from "@/lib/db/schema";
+import { NewPostForm } from "./new-post-form";
 
-export default function NewPostPage() {
+export const dynamic = "force-dynamic";
+
+export default async function NewPostPage() {
+  const cats = await db
+    .select({ id: categories.id, name: categories.name, slug: categories.slug })
+    .from(categories)
+    .orderBy(asc(categories.sortOrder), asc(categories.name));
+
   return (
-    <div className="mx-auto max-w-2xl p-6">
+    <div className="mx-auto max-w-3xl p-6">
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">New post</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle>Coming in Phase 3</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          The upload flow (paste X URL → fetch metadata → download media → optimize → R2 → publish)
-          is scaffolded next.
-        </CardContent>
-      </Card>
+      <NewPostForm categories={cats} />
     </div>
   );
 }

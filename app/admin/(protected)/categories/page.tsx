@@ -1,25 +1,28 @@
-import { asc } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { categories } from "@/lib/db/schema";
+import { categories, postCategories } from "@/lib/db/schema";
+import { CategoriesManager } from "./categories-manager";
+
+export const dynamic = "force-dynamic";
 
 export default async function AdminCategoriesPage() {
-  const rows = await db.select().from(categories).orderBy(asc(categories.sortOrder));
+  const rows = await db
+    .select({
+      id: categories.id,
+      name: categories.name,
+      slug: categories.slug,
+      description: categories.description,
+      sortOrder: categories.sortOrder,
+      postCount: sql<number>`count(${postCategories.postId})::int`,
+    })
+    .from(categories)
+    .leftJoin(postCategories, eq(postCategories.categoryId, categories.id))
+    .groupBy(categories.id)
+    .orderBy(asc(categories.sortOrder), asc(categories.name));
+
   return (
     <div className="mx-auto max-w-3xl p-6">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Categories</h1>
-      <div className="rounded-2xl border border-border/60 bg-card">
-        {rows.map((c) => (
-          <div
-            key={c.id}
-            className="flex items-center justify-between border-b border-border/60 px-4 py-3 last:border-b-0"
-          >
-            <div>
-              <div className="text-sm font-medium">{c.name}</div>
-              <div className="text-xs text-muted-foreground">/{c.slug}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <CategoriesManager initialCategories={rows} />
     </div>
   );
 }
