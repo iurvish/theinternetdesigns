@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { VideoPlayer } from "@/components/video-player";
 import { fetchPreview, publishPost } from "./actions";
 import type { NormalizedTweet } from "@/lib/providers/tweet/syndication";
 
@@ -113,32 +114,29 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <div className="flex flex-col gap-3">
+              <div className="text-xs text-muted-foreground">
+                {tweet.media.length} media item{tweet.media.length === 1 ? "" : "s"} — preview before publishing
+              </div>
               {tweet.media.map((m, i) => (
                 <div
                   key={i}
-                  className="relative aspect-square overflow-hidden rounded-lg border border-border/60 bg-muted"
+                  className="overflow-hidden rounded-lg border border-border/60 bg-muted"
                 >
                   {m.kind === "image" ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.url} alt="" className="h-full w-full object-cover" />
-                  ) : m.posterUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={m.posterUrl}
+                      src={m.url}
                       alt=""
-                      className="h-full w-full object-cover"
+                      className="block h-auto w-full object-contain"
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                      {m.kind}
-                    </div>
+                    <VideoPlayer
+                      src={m.url}
+                      poster={m.posterUrl}
+                      mode={m.kind === "gif" ? "gif" : "video"}
+                    />
                   )}
-                  {m.kind !== "image" ? (
-                    <div className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
-                      {m.kind}
-                    </div>
-                  ) : null}
                 </div>
               ))}
             </div>

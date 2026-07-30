@@ -80,7 +80,12 @@ export async function processVideo(
   const { buffer, contentType } = await download(sourceUrl);
   const baseType = contentType.split(";")[0].trim().toLowerCase();
   const looksMp4 = baseType === "video/mp4" || /\.mp4(\?|$)/i.test(sourceUrl);
-  const finalType = looksMp4 ? "video/mp4" : baseType.startsWith("video/") ? baseType : "video/mp4";
+  if (!looksMp4 && !baseType.startsWith("video/")) {
+    throw new Error(
+      `Expected a video, downloaded ${baseType || "unknown"} from ${sourceUrl}. Aborting to avoid uploading a non-video file as mp4.`,
+    );
+  }
+  const finalType = looksMp4 ? "video/mp4" : baseType;
   const originalUrl = await uploadToR2({
     key: `${keyPrefix}/video.mp4`,
     body: buffer,

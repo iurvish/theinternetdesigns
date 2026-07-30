@@ -6,6 +6,7 @@ import { getPostById } from "@/features/posts/queries";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
+import { VideoPlayer } from "@/components/video-player";
 
 export default async function PostPage({
   params,
@@ -51,16 +52,10 @@ export default async function PostPage({
             className="overflow-hidden rounded-2xl border border-border/60 bg-muted"
           >
             {m.kind === "video" || m.kind === "gif" ? (
-              <video
+              <VideoPlayer
                 src={m.originalUrl}
-                poster={m.posterUrl ?? undefined}
-                controls={m.kind === "video"}
-                autoPlay={m.kind === "gif"}
-                loop={m.kind === "gif"}
-                muted={m.kind === "gif"}
-                playsInline
-                preload="metadata"
-                className="w-full"
+                poster={m.posterUrl ?? m.thumbnailUrl}
+                mode={m.kind === "gif" ? "gif" : "video"}
               />
             ) : (
               <div

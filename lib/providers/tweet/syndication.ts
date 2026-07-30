@@ -40,7 +40,7 @@ export type NormalizedTweet = {
   raw: unknown;
 };
 
-type SyndVariant = { url: string; type: string; bitrate?: number };
+type SyndVariant = { url: string; content_type: string; bitrate?: number };
 type SyndMedia = {
   type: "photo" | "video" | "animated_gif";
   media_url_https: string;
@@ -65,18 +65,36 @@ type SyndResponse = {
 };
 
 function pickBestVideo(variants: SyndVariant[]): SyndVariant | null {
-  const mp4 = variants.filter((v) => v.type === "video/mp4");
+  const mp4 = variants.filter((v) => v.content_type === "video/mp4");
   if (mp4.length === 0) return null;
   return mp4.reduce((best, cur) =>
     (cur.bitrate ?? 0) > (best.bitrate ?? 0) ? cur : best,
   );
 }
 
+const FEATURES = [
+  "tfw_timeline_list:",
+  "tfw_follower_count_sunset:true",
+  "tfw_tweet_edit_backend:on",
+  "tfw_refsrc_session:on",
+  "tfw_fosnr_soft_interventions_enabled:on",
+  "tfw_show_birdwatch_pivots_enabled:on",
+  "tfw_show_business_verified_badge:on",
+  "tfw_duplicate_scribes_to_settings:on",
+  "tfw_use_profile_image_shape_enabled:on",
+  "tfw_show_blue_verified_badge:on",
+  "tfw_legacy_timeline_sunset:true",
+  "tfw_show_gov_verified_badge:on",
+  "tfw_show_business_affiliate_badge:on",
+  "tfw_tweet_edit_frontend:on",
+].join(";");
+
 export async function fetchTweet(id: string): Promise<NormalizedTweet> {
   const url = new URL(SYNDICATION_URL);
   url.searchParams.set("id", id);
-  url.searchParams.set("token", getToken(id));
   url.searchParams.set("lang", "en");
+  url.searchParams.set("features", FEATURES);
+  url.searchParams.set("token", getToken(id));
 
   const res = await fetch(url.toString(), {
     headers: { "user-agent": "Mozilla/5.0 (idesigns)" },
@@ -86,16 +104,21 @@ export async function fetchTweet(id: string): Promise<NormalizedTweet> {
   if (!res.ok) throw new Error(`Twitter syndication failed: ${res.status}`);
   const data = (await res.json()) as SyndResponse;
 
-  const media: TweetMedia[] = (data.mediaDetails ?? []).map((m) => {
+  const media: TweetMedia[] = (data.mediaDetails ?? []).map((m, i) => {
     const width = m.original_info?.width ?? null;
     const height = m.original_info?.height ?? null;
     if (m.type === "photo") {
       return { kind: "image", url: m.media_url_https, width, height };
     }
     const best = pickBestVideo(m.video_info?.variants ?? []);
+    if (!best) {
+      throw new Error(
+        `Media #${i + 1} in this tweet is a ${m.type} but has no mp4 variant we can download (likely HLS-only or externally hosted).`,
+      );
+    }
     return {
       kind: m.type === "animated_gif" ? "gif" : "video",
-      url: best?.url ?? m.media_url_https,
+      url: best.url,
       posterUrl: m.media_url_https,
       width,
       height,
