@@ -211,12 +211,19 @@ export function PostOverlay({
           <motion.div
             key={post.id}
             className="absolute inset-0"
-            // First open stays opaque so the shared-element morph reads cleanly;
-            // later post switches cross-fade in.
-            initial={{ opacity: openedOnce.current ? 0 : 1 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={FADE}
+            // First open stays crisp so the shared-element morph reads cleanly.
+            // Later post switches focus-pull in (blur → sharp) which also masks
+            // the crossfade between two different images.
+            initial={{
+              opacity: openedOnce.current ? 0 : 1,
+              filter: openedOnce.current ? "blur(12px)" : "blur(0px)",
+            }}
+            animate={{ opacity: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, filter: "blur(6px)" }}
+            transition={{
+              opacity: FADE,
+              filter: { duration: 0.34, ease: [0.23, 1, 0.32, 1] },
+            }}
           >
             {media.map((m, i) => {
               const offset = i - mediaIndex;
@@ -365,15 +372,17 @@ function ControlButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
+    <motion.button
       type="button"
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
+      whileTap={{ scale: 0.9 }}
+      transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
       className="flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 backdrop-blur-md transition-colors hover:bg-white/20 disabled:opacity-30"
     >
       {children}
-    </button>
+    </motion.button>
   );
 }
 

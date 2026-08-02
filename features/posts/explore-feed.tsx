@@ -147,7 +147,7 @@ function Pill({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm tracking-tight shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-colors",
+        "flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm tracking-tight shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100",
         active
           ? "bg-[#1f2123] text-[#eaebeb]"
           : "bg-[#f2f2f2] text-[#707275] hover:bg-[#ececec]",
@@ -189,26 +189,37 @@ function SortMenu({
           )}
         />
       </button>
-      {open ? (
-        <div className="absolute right-0 top-full z-20 mt-1.5 w-30 overflow-hidden rounded-xl bg-white p-1 shadow-[0_0_0_1px_rgba(232,232,232,0.8),0_8px_24px_-6px_rgba(0,0,0,0.12)]">
-          {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => {
-                onChange(k);
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm tracking-tight transition-colors hover:bg-[#f2f2f2]",
-                value === k ? "text-[#1f2123]" : "text-[#707275]",
-              )}
-            >
-              {SORT_LABELS[k]}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <AnimatePresence>
+        {open ? (
+          <motion.div
+            // Scales from the trigger (top-right), not centre — origin-aware
+            // dropdown entrance, ease-out, 180ms (dropdown budget).
+            initial={{ opacity: 0, scale: 0.96, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+            style={{ transformOrigin: "top right" }}
+            className="absolute right-0 top-full z-20 mt-1.5 w-30 overflow-hidden rounded-xl bg-white p-1 shadow-[0_0_0_1px_rgba(232,232,232,0.8),0_8px_24px_-6px_rgba(0,0,0,0.12)]"
+          >
+            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => {
+                  onChange(k);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm tracking-tight transition-colors hover:bg-[#f2f2f2]",
+                  value === k ? "text-[#1f2123]" : "text-[#707275]",
+                )}
+              >
+                {SORT_LABELS[k]}
+              </button>
+            ))}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
