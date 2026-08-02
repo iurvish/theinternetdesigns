@@ -132,7 +132,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                     />
                   ) : (
                     <VideoPlayer
-                      src={m.url}
+                      src={`/api/tweet-preview/${tweet.id}/${i}`}
                       poster={m.posterUrl}
                       mode={m.kind === "gif" ? "gif" : "video"}
                     />
