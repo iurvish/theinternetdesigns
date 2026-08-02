@@ -1,12 +1,16 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Suspense, use, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { ArrowUpRight, ChevronDown, Play, Plus } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Play } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
+import { ColorSearch } from "./color-search";
+import { SetupRequired } from "@/components/setup-required";
+
+export type PostsResult = { posts: PostListItem[]; error: string | null };
 
 type Category = { slug: string; name: string };
 type SortKey = "recent" | "oldest";
@@ -22,14 +26,67 @@ const SORT_LABELS: Record<SortKey, string> = {
  * (node 1:2). Light-only aesthetic using the design's literal palette.
  */
 export function ExploreFeed({
-  posts,
   categories,
+  postsPromise,
 }: {
-  posts: PostListItem[];
   categories: Category[];
+  postsPromise: Promise<PostsResult>;
 }) {
   const [active, setActive] = useState<string>("all");
   const [sort, setSort] = useState<SortKey>("recent");
+
+  return (
+    <MotionConfig reducedMotion="user">
+      {/* Filter toolbar — rendered immediately (outside the grid's Suspense) so it
+          never blanks out on refresh. Elevated (relative z-30) so its dropdowns
+          paint above the grid; drop shadow gives the bar its crisp float. */}
+      <div className="relative z-30 flex w-full flex-col items-start border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff,0_8px_20px_-12px_rgba(0,0,0,0.12)]">
+        <div className="flex w-full items-center gap-4 px-3.5">
+          <div className="flex shrink-0 items-center py-3.5">
+            <ColorSearch />
+          </div>
+
+          <Divider />
+
+          <PillRail categories={categories} active={active} onSelect={setActive} />
+
+          <Divider />
+
+          <div className="flex shrink-0 items-center py-3.5">
+            <SortMenu value={sort} onChange={setSort} />
+          </div>
+        </div>
+      </div>
+
+      {/* Only the grid streams in — the bar above stays put */}
+      <Suspense fallback={<GridSkeleton />}>
+        <FeedBody postsPromise={postsPromise} active={active} sort={sort} />
+      </Suspense>
+
+      {/* Footer strip */}
+      <div className="h-16 w-full shrink-0 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]" />
+    </MotionConfig>
+  );
+}
+
+function GridBox({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex w-full flex-1 items-start gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-3.5 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]">
+      {children}
+    </div>
+  );
+}
+
+function FeedBody({
+  postsPromise,
+  active,
+  sort,
+}: {
+  postsPromise: Promise<PostsResult>;
+  active: string;
+  sort: SortKey;
+}) {
+  const { posts, error } = use(postsPromise);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   const visible = useMemo(() => {
@@ -37,69 +94,24 @@ export function ExploreFeed({
       active === "all"
         ? posts
         : posts.filter((p) => p.categories.some((c) => c.slug === active));
-    const sorted = [...filtered].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       const at = a.publishedAt ? a.publishedAt.getTime() : 0;
       const bt = b.publishedAt ? b.publishedAt.getTime() : 0;
       return sort === "recent" ? bt - at : at - bt;
     });
-    return sorted;
   }, [posts, active, sort]);
 
+  if (error) {
+    return (
+      <GridBox>
+        <SetupRequired detail={error} />
+      </GridBox>
+    );
+  }
+
   return (
-    <MotionConfig reducedMotion="user">
-      {/* Filter toolbar */}
-      <div className="flex w-full flex-col items-start border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]">
-        <div className="flex w-full items-center gap-4 px-3.5">
-          {/* Left: view controls */}
-          <div className="flex shrink-0 items-center gap-2.5 py-3.5">
-            <div className="flex shrink-0 items-center gap-2.5 rounded-xl bg-white px-2.5 py-2 shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]">
-              <Image
-                src="/figma/logo.svg"
-                alt="Logo"
-                width={20}
-                height={20}
-                className="size-6 shrink-0 p-0.5"
-              />
-              <span className="flex items-center rounded-sm border border-dashed border-[#e3e5e8] bg-[#f7f7f7] p-1 text-[#707275]">
-                <Plus className="size-4" strokeWidth={2} />
-              </span>
-            </div>
-            <LayoutPreview />
-          </div>
-
-          <Divider />
-
-          {/* Middle: category pills */}
-          <div className="relative flex min-w-0 flex-1 items-center overflow-x-auto py-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <div className="flex items-center gap-3">
-              <Pill
-                label="All"
-                active={active === "all"}
-                onClick={() => setActive("all")}
-              />
-              {categories.map((c) => (
-                <Pill
-                  key={c.slug}
-                  label={c.name}
-                  active={active === c.slug}
-                  onClick={() => setActive(c.slug)}
-                />
-              ))}
-            </div>
-            <div className="pointer-events-none sticky right-0 -ml-9 h-16 w-9 shrink-0 bg-gradient-to-l from-[#f7f7f7] to-[rgba(247,247,247,0)]" />
-          </div>
-
-          <Divider />
-
-          {/* Right: sort */}
-          <div className="flex shrink-0 items-start py-3.5">
-            <SortMenu value={sort} onChange={setSort} />
-          </div>
-        </div>
-      </div>
-
-      {/* Masonry grid */}
-      <div className="flex w-full flex-1 items-start gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-3.5 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]">
+    <>
+      <GridBox>
         {visible.length === 0 ? (
           <EmptyState hasPosts={posts.length > 0} />
         ) : (
@@ -109,10 +121,7 @@ export function ExploreFeed({
             ))}
           </div>
         )}
-      </div>
-
-      {/* Footer strip */}
-      <div className="h-16 w-full shrink-0 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]" />
+      </GridBox>
 
       <AnimatePresence>
         {openIndex !== null ? (
@@ -125,12 +134,103 @@ export function ExploreFeed({
           />
         ) : null}
       </AnimatePresence>
-    </MotionConfig>
+    </>
+  );
+}
+
+function GridSkeleton() {
+  return (
+    <GridBox>
+      <div className="w-full columns-2 gap-2.5 md:columns-3">
+        {Array.from({ length: 9 }).map((_, i) => (
+          <div
+            key={i}
+            className={cn(
+              "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
+              i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-80",
+            )}
+          />
+        ))}
+      </div>
+    </GridBox>
   );
 }
 
 function Divider() {
-  return <div className="h-9 w-px shrink-0 self-center bg-[#e3e5e8]" aria-hidden />;
+  // Full-height hairline with a 1px white bevel to its right (Figma node 12:162).
+  return (
+    <div
+      className="w-px shrink-0 self-stretch bg-[#e3e5e8] shadow-[1px_0_0_0_rgba(255,255,255,0.9)]"
+      aria-hidden
+    />
+  );
+}
+
+const POPOVER_SHADOW =
+  "shadow-[0px_0px_0px_1px_rgba(0,0,0,0.06),0px_2px_6px_-2px_rgba(0,0,0,0.08),0px_14px_36px_-10px_rgba(0,0,0,0.22)]";
+
+function PillRail({
+  categories,
+  active,
+  onSelect,
+}: {
+  categories: Category[];
+  active: string;
+  onSelect: (slug: string) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      setEdges({
+        left: el.scrollLeft > 4,
+        right: el.scrollLeft < el.scrollWidth - el.clientWidth - 4,
+      });
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [categories]);
+
+  return (
+    <div className="relative min-w-0 flex-1">
+      <div
+        ref={scrollRef}
+        className="flex items-center gap-3 overflow-x-auto py-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <Pill label="All" active={active === "all"} onClick={() => onSelect("all")} />
+        {categories.map((c) => (
+          <Pill
+            key={c.slug}
+            label={c.name}
+            active={active === c.slug}
+            onClick={() => onSelect(c.slug)}
+          />
+        ))}
+      </div>
+      {/* Balanced edge fades — left appears once scrolled, right hides at the end */}
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-[#f7f7f7] to-transparent transition-opacity duration-200",
+          edges.left ? "opacity-100" : "opacity-0",
+        )}
+      />
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[#f7f7f7] to-transparent transition-opacity duration-200",
+          edges.right ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </div>
+  );
 }
 
 function Pill({
@@ -199,7 +299,10 @@ function SortMenu({
             exit={{ opacity: 0, scale: 0.96, y: -4 }}
             transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top right" }}
-            className="absolute right-0 top-full z-20 mt-1.5 w-30 overflow-hidden rounded-xl bg-white p-1 shadow-[0_0_0_1px_rgba(232,232,232,0.8),0_8px_24px_-6px_rgba(0,0,0,0.12)]"
+            className={cn(
+              "absolute right-0 top-full z-50 mt-1.5 w-30 overflow-hidden rounded-xl bg-white p-1",
+              POPOVER_SHADOW,
+            )}
           >
             {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
               <button
@@ -225,32 +328,6 @@ function SortMenu({
 }
 
 /** Small skeuomorphic layout-preview widget from the toolbar (node 1:22). */
-function LayoutPreview() {
-  const columns = [
-    ["h-4", "h-4"],
-    ["h-1.5", "h-4"],
-    ["h-4", "h-3.5"],
-  ];
-  return (
-    <div className="flex h-9 w-38 shrink-0 items-center gap-1 overflow-hidden rounded-xl bg-white px-3 shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]">
-      {columns.map((col, i) => (
-        <div key={i} className="flex w-6 flex-col gap-0.5">
-          {col.map((h, j) => (
-            <div
-              key={j}
-              className={cn(
-                "w-full rounded-sm bg-[#efeff0] shadow-[inset_0_0.5px_0_0_rgba(0,0,0,0.06)]",
-                h,
-              )}
-            />
-          ))}
-        </div>
-      ))}
-      <div className="ml-auto h-4.5 w-px bg-[#e3e5e8]" />
-    </div>
-  );
-}
-
 function MasonryCard({
   post,
   index,
