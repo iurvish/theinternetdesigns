@@ -21,6 +21,14 @@ export type PostListItem = {
     width: number | null;
     height: number | null;
   } | null;
+  /** All media for the post, ordered by position — used by the lightbox carousel. */
+  images: {
+    url: string;
+    posterUrl: string | null;
+    kind: "image" | "video" | "gif";
+    width: number | null;
+    height: number | null;
+  }[];
   categories: { slug: string; name: string }[];
 };
 
@@ -35,7 +43,8 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
     db
       .select()
       .from(media)
-      .where(and(inArray(media.postId, ids), eq(media.position, 0))),
+      .where(inArray(media.postId, ids))
+      .orderBy(media.position),
     db
       .select({
         postId: postCategories.postId,
@@ -48,7 +57,12 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
   ]);
 
   const creatorById = new Map(creatorRows.map((c) => [c.id, c]));
-  const thumbByPost = new Map(mediaRows.map((m) => [m.postId, m]));
+  const mediaByPost = new Map<string, typeof mediaRows>();
+  for (const m of mediaRows) {
+    const arr = mediaByPost.get(m.postId) ?? [];
+    arr.push(m);
+    mediaByPost.set(m.postId, arr);
+  }
   const catsByPost = new Map<string, { slug: string; name: string }[]>();
   for (const row of catRows) {
     const arr = catsByPost.get(row.postId) ?? [];
@@ -58,7 +72,8 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
 
   return postRows.map<PostListItem>((p) => {
     const c = creatorById.get(p.creatorId);
-    const thumb = thumbByPost.get(p.id);
+    const postMedia = mediaByPost.get(p.id) ?? [];
+    const thumb = postMedia[0];
     return {
       id: p.id,
       title: p.title,
@@ -79,6 +94,13 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
             height: thumb.height,
           }
         : null,
+      images: postMedia.map((m) => ({
+        url: m.mediumUrl ?? m.originalUrl,
+        posterUrl: m.posterUrl ?? m.thumbnailUrl,
+        kind: m.kind,
+        width: m.width,
+        height: m.height,
+      })),
       categories: catsByPost.get(p.id) ?? [],
     };
   });

@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { ArrowUpRight, ChevronDown, Play, Plus } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
+import { PostOverlay } from "./post-overlay";
 
 type Category = { slug: string; name: string };
 type SortKey = "recent" | "oldest";
@@ -29,6 +30,7 @@ export function ExploreFeed({
 }) {
   const [active, setActive] = useState<string>("all");
   const [sort, setSort] = useState<SortKey>("recent");
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   const visible = useMemo(() => {
     const filtered =
@@ -44,7 +46,7 @@ export function ExploreFeed({
   }, [posts, active, sort]);
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       {/* Filter toolbar */}
       <div className="flex w-full flex-col items-start border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]">
         <div className="flex w-full items-center gap-4 px-3.5">
@@ -103,7 +105,7 @@ export function ExploreFeed({
         ) : (
           <div className="w-full columns-2 gap-2.5 md:columns-3 [column-fill:_balance]">
             {visible.map((p, i) => (
-              <MasonryCard key={p.id} post={p} index={i} />
+              <MasonryCard key={p.id} post={p} index={i} onOpen={setOpenIndex} />
             ))}
           </div>
         )}
@@ -111,7 +113,19 @@ export function ExploreFeed({
 
       {/* Footer strip */}
       <div className="h-16 w-full shrink-0 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]" />
-    </>
+
+      <AnimatePresence>
+        {openIndex !== null ? (
+          <PostOverlay
+            key="post-overlay"
+            posts={visible}
+            index={openIndex}
+            onIndexChange={setOpenIndex}
+            onClose={() => setOpenIndex(null)}
+          />
+        ) : null}
+      </AnimatePresence>
+    </MotionConfig>
   );
 }
 
@@ -226,7 +240,15 @@ function LayoutPreview() {
   );
 }
 
-function MasonryCard({ post, index }: { post: PostListItem; index: number }) {
+function MasonryCard({
+  post,
+  index,
+  onOpen,
+}: {
+  post: PostListItem;
+  index: number;
+  onOpen: (i: number) => void;
+}) {
   const aspectRatio =
     post.thumbnail?.width && post.thumbnail?.height
       ? `${post.thumbnail.width} / ${post.thumbnail.height}`
@@ -237,9 +259,18 @@ function MasonryCard({ post, index }: { post: PostListItem; index: number }) {
           : "1066 / 720";
 
   return (
-    <Link
-      href={`/post/${post.id}`}
-      className="group relative mb-2.5 block break-inside-avoid overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]"
+    <motion.div
+      layoutId={`post-${post.id}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(index)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(index);
+        }
+      }}
+      className="group relative mb-2.5 block cursor-pointer break-inside-avoid overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]"
     >
       <div className="relative w-full" style={{ aspectRatio }}>
         {post.thumbnail?.url ? (
@@ -281,7 +312,7 @@ function MasonryCard({ post, index }: { post: PostListItem; index: number }) {
           />
         </span>
       ) : null}
-    </Link>
+    </motion.div>
   );
 }
 
