@@ -2,28 +2,27 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import Link from "next/link";
-import { ExternalLink, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
 import type { PostListItem } from "./queries";
 
 /**
  * Motion vocabulary — pulled from the repo's animation skill so every surface
  * shares one feel. Springs for anything spatial, quick eases for opacity.
  */
-const MORPH = { type: "spring", duration: 0.5, bounce: 0.16 } as const;
-const SLIDE = { type: "spring", duration: 0.55, bounce: 0.18 } as const;
-const FADE = { duration: 0.22, ease: [0.23, 1, 0.32, 1] } as const;
-const DRAWER = { duration: 0.42, ease: [0.32, 0.72, 0, 1] } as const;
+const OPEN_MORPH = { type: "spring", duration: 0.44, bounce: 0.14 } as const;
+const SLIDE = { type: "spring", duration: 0.5, bounce: 0.16 } as const;
+const FADE = { duration: 0.18, ease: [0.23, 1, 0.32, 1] } as const;
+const DRAWER = { duration: 0.4, ease: [0.32, 0.72, 0, 1] } as const;
 
-type Slot = { x: number; scale: number; opacity: number; zIndex: number };
+type MediaItem = PostListItem["images"][number];
 
-function slotFor(offset: number, peekX: number): Slot {
-  const abs = Math.abs(offset);
-  if (abs === 0) return { x: 0, scale: 1, opacity: 1, zIndex: 30 };
-  if (abs === 1)
-    return { x: Math.sign(offset) * peekX, scale: 0.82, opacity: 0.5, zIndex: 20 };
-  return { x: Math.sign(offset) * peekX * 1.7, scale: 0.7, opacity: 0, zIndex: 10 };
+function mediaSlot(offset: number, peekX: number) {
+  if (offset === 0) return { x: 0, scale: 1, zIndex: 30 };
+  // Side previews of the SAME post's other media — full opacity, tucked partly
+  // behind the centred main image.
+  return { x: Math.sign(offset) * peekX, scale: 0.62, zIndex: 20 };
 }
 
 export function PostOverlay({
@@ -39,22 +38,29 @@ export function PostOverlay({
 }) {
   const post = posts[index];
 
-  // 'in' = the opening morph is playing (only the active card is shown, and it
-  // carries the shared layoutId). 'browse' = the full carousel with peeking
-  // neighbours; the active card drops its layoutId so post-to-post navigation is
-  // a clean transform slide instead of a fling from the grid.
+  // 'in' = the opening morph is playing (only the active media is shown, and it
+  // carries the shared layoutId). 'browse' = the media carousel with its side
+  // previews; the main image drops its layoutId so navigation is a clean slide.
   const [phase, setPhase] = useState<"in" | "browse">("in");
   const [closing, setClosing] = useState(false);
-  const [imageIndex, setImageIndex] = useState(0);
-  const [imgDir, setImgDir] = useState(1);
-  const [peekX, setPeekX] = useState(460);
+  const [mediaIndex, setMediaIndex] = useState(0);
+  const [dir, setDir] = useState(1);
+  const [peekX, setPeekX] = useState(420);
   const areaRef = useRef<HTMLDivElement>(null);
 
-  // Measure the stage so peeking neighbours sit near the viewport edges.
+  const media: MediaItem[] = post?.images?.length
+    ? post.images
+    : post?.thumbnail
+      ? [{ url: post.thumbnail.url, posterUrl: null, kind: "image", width: post.thumbnail.width, height: post.thumbnail.height }]
+      : [];
+  const hasMany = media.length > 1;
+
+  // Measure the stage (viewport minus the info panel) so the side previews sit
+  // just past the edges of the centred image.
   useLayoutEffect(() => {
     const el = areaRef.current;
     if (!el) return;
-    const measure = () => setPeekX(Math.max(320, el.clientWidth * 0.46));
+    const measure = () => setPeekX(Math.max(300, el.clientWidth * 0.4));
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -64,56 +70,54 @@ export function PostOverlay({
   // Fallback in case onLayoutAnimationComplete doesn't fire (reduced motion, etc).
   useEffect(() => {
     if (phase !== "in") return;
-    const t = setTimeout(() => setPhase("browse"), 600);
+    const t = setTimeout(() => setPhase("browse"), 520);
     return () => clearTimeout(t);
   }, [phase]);
 
   const requestClose = useCallback(() => setClosing(true), []);
 
-  // Once the exit fade has played, unmount — the grid card re-takes the shared
-  // layoutId and morphs back into place.
+  // Faster exit: brief fade, then unmount so the grid card re-takes the shared
+  // layoutId and morphs back.
   useEffect(() => {
     if (!closing) return;
-    const t = setTimeout(onClose, 200);
+    const t = setTimeout(onClose, 120);
     return () => clearTimeout(t);
   }, [closing, onClose]);
 
-  const images = post?.images?.length ? post.images : post?.thumbnail ? [
-    { url: post.thumbnail.url, posterUrl: null, kind: "image" as const, width: post.thumbnail.width, height: post.thumbnail.height },
-  ] : [];
-  const hasMany = images.length > 1;
-
-  const goImage = useCallback(
-    (dir: number) => {
-      if (!hasMany) return;
-      setImgDir(dir);
-      setImageIndex((i) => (i + dir + images.length) % images.length);
+  const goMedia = useCallback(
+    (d: number) => {
+      setMediaIndex((i) => {
+        const next = i + d;
+        if (next < 0 || next >= media.length) return i;
+        setDir(d);
+        return next;
+      });
     },
-    [hasMany, images.length],
+    [media.length],
   );
 
   const goPost = useCallback(
-    (dir: number) => {
-      const next = index + dir;
+    (d: number) => {
+      const next = index + d;
       if (next < 0 || next >= posts.length) return;
       onIndexChange(next);
     },
     [index, posts.length, onIndexChange],
   );
 
-  // Reset the inner image carousel whenever the active post changes.
+  // Reset the media carousel whenever the active post changes.
   useEffect(() => {
-    setImageIndex(0);
+    setMediaIndex(0);
   }, [index]);
 
-  // Keyboard: ←/→ posts, ↑/↓ images, Esc closes. Lock body scroll while open.
+  // Keyboard: ←/→ media (posts if single-media), ↑/↓ posts, Esc closes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") requestClose();
-      else if (e.key === "ArrowLeft") goPost(-1);
-      else if (e.key === "ArrowRight") goPost(1);
-      else if (e.key === "ArrowUp") goImage(-1);
-      else if (e.key === "ArrowDown") goImage(1);
+      else if (e.key === "ArrowLeft") hasMany ? goMedia(-1) : goPost(-1);
+      else if (e.key === "ArrowRight") hasMany ? goMedia(1) : goPost(1);
+      else if (e.key === "ArrowUp") goPost(-1);
+      else if (e.key === "ArrowDown") goPost(1);
     };
     window.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -122,18 +126,18 @@ export function PostOverlay({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [goPost, goImage, requestClose]);
+  }, [goMedia, goPost, requestClose, hasMany]);
 
   if (!post) return null;
 
-  // The window of posts that share the stage. During the opening morph only the
-  // active card is present; afterwards the neighbours fade in.
-  const windowPosts =
+  // The window of media that shares the stage. During the opening morph only the
+  // active image is present; afterwards its neighbours slide in.
+  const windowMedia =
     phase === "in"
-      ? [{ post, offset: 0, i: index }]
-      : Array.from({ length: 5 }, (_, k) => index - 2 + k)
-          .filter((i) => i >= 0 && i < posts.length)
-          .map((i) => ({ post: posts[i], offset: i - index, i }));
+      ? [{ item: media[mediaIndex], offset: 0, i: mediaIndex }]
+      : media
+          .map((item, i) => ({ item, offset: i - mediaIndex, i }))
+          .filter(({ offset }) => Math.abs(offset) <= 1);
 
   const overlay = (
     <div className="fixed inset-0 z-50">
@@ -146,7 +150,7 @@ export function PostOverlay({
         onClick={requestClose}
       />
 
-      {/* Ambient light streaks (decorative, mix-blend) */}
+      {/* Ambient light streaks (decorative) */}
       <motion.div
         aria-hidden
         className="pointer-events-none absolute inset-0 overflow-hidden mix-blend-soft-light"
@@ -159,40 +163,60 @@ export function PostOverlay({
         <div className="absolute right-10 -top-40 h-[900px] w-[520px] rotate-[-115deg] rounded-full bg-white/30 blur-[120px]" />
       </motion.div>
 
-      {/* Close button */}
-      <motion.button
-        type="button"
-        onClick={requestClose}
-        aria-label="Close"
-        className="absolute left-5 top-5 z-40 flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 backdrop-blur-md transition-colors hover:bg-white/20"
+      {/* Top-left controls: close + prev/next post */}
+      <motion.div
+        className="absolute left-5 top-5 z-40 flex items-center gap-2"
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
         transition={FADE}
       >
-        <X className="size-4" />
-      </motion.button>
+        <button
+          type="button"
+          onClick={requestClose}
+          aria-label="Close"
+          className="flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 backdrop-blur-md transition-colors hover:bg-white/20"
+        >
+          <X className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => goPost(-1)}
+          disabled={index === 0}
+          aria-label="Previous post"
+          className="flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 backdrop-blur-md transition-colors hover:bg-white/20 disabled:opacity-30"
+        >
+          <ChevronLeft className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => goPost(1)}
+          disabled={index === posts.length - 1}
+          aria-label="Next post"
+          className="flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 backdrop-blur-md transition-colors hover:bg-white/20 disabled:opacity-30"
+        >
+          <ChevronRight className="size-4" />
+        </button>
+      </motion.div>
 
-      {/* Carousel stage */}
+      {/* Carousel stage — centred in the space left of the info panel */}
       <div
         ref={areaRef}
-        className="pointer-events-none absolute inset-y-0 left-0 right-0 overflow-hidden"
+        className="pointer-events-none absolute inset-y-0 left-0 right-0 overflow-hidden md:right-[340px]"
       >
-        {windowPosts.map(({ post: p, offset, i }) => {
+        {windowMedia.map(({ item, offset, i }) => {
           const isActive = offset === 0;
           const morph = (phase === "in" || closing) && isActive;
-          const slot = slotFor(offset, peekX);
-          const cur = isActive ? images[imageIndex] : p.images[0] ?? p.thumbnail;
-          const src = cur?.url ?? p.thumbnail?.url ?? "";
+          const slot = mediaSlot(offset, peekX);
           return (
             <div
-              key={p.id}
+              key={`${post.id}-${i}`}
               className="pointer-events-none absolute inset-0 flex items-center justify-center"
               style={{ zIndex: slot.zIndex }}
             >
               <motion.div
-                layoutId={morph ? `post-${p.id}` : undefined}
-                className="pointer-events-auto relative cursor-pointer"
-                onClick={() => (isActive ? undefined : onIndexChange(i))}
+                layoutId={morph ? `post-${post.id}` : undefined}
+                className="pointer-events-auto cursor-pointer"
+                onClick={() => (isActive ? undefined : setMediaIndex(i))}
                 initial={
                   phase === "in" && isActive
                     ? false
@@ -201,64 +225,20 @@ export function PostOverlay({
                 animate={
                   morph
                     ? { opacity: 1 }
-                    : { x: slot.x, scale: slot.scale, opacity: closing && isActive ? 1 : slot.opacity }
+                    : { x: slot.x, scale: slot.scale, opacity: 1 }
                 }
-                transition={morph ? MORPH : SLIDE}
+                transition={morph ? OPEN_MORPH : SLIDE}
                 onLayoutAnimationComplete={
                   phase === "in" && isActive ? () => setPhase("browse") : undefined
                 }
               >
-                {/* Main media */}
-                <AnimatePresence initial={false} custom={imgDir} mode="popLayout">
-                  <motion.img
-                    key={isActive ? `${p.id}-${imageIndex}` : p.id}
-                    src={src}
-                    alt={p.caption ?? ""}
-                    draggable={false}
-                    custom={imgDir}
-                    initial={isActive && phase !== "in" ? { opacity: 0, x: imgDir * 48 } : false}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: imgDir * -48 }}
-                    transition={SLIDE}
-                    className="block max-h-[74vh] max-w-[54vw] rounded-[12px] object-contain shadow-[0px_6px_38px_0px_rgba(0,0,0,0.18),0px_6px_24px_0px_rgba(0,0,0,0.12),0px_1px_1px_0px_rgba(0,0,0,0.2)]"
-                  />
-                </AnimatePresence>
-
-                {/* Inner image carousel: the "next image" peeks at the right */}
-                {isActive && hasMany && phase === "browse" && !closing ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => goImage(1)}
-                      aria-label="Next image"
-                      className="absolute top-1/2 left-full ml-3 hidden -translate-y-1/2 overflow-hidden rounded-[12px] border border-white/20 shadow-[0px_6px_24px_0px_rgba(0,0,0,0.18)] transition-transform hover:scale-[1.03] md:block"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={images[(imageIndex + 1) % images.length]?.url}
-                        alt=""
-                        className="h-40 w-28 object-cover opacity-90"
-                        draggable={false}
-                      />
-                    </button>
-                    <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1.5 backdrop-blur-md">
-                      {images.map((_, di) => (
-                        <button
-                          key={di}
-                          type="button"
-                          aria-label={`Image ${di + 1}`}
-                          onClick={() => {
-                            setImgDir(di > imageIndex ? 1 : -1);
-                            setImageIndex(di);
-                          }}
-                          className={`size-1.5 rounded-full transition-colors ${
-                            di === imageIndex ? "bg-white" : "bg-white/40"
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </>
-                ) : null}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item?.url}
+                  alt={isActive ? (post.caption ?? "") : ""}
+                  draggable={false}
+                  className="block max-h-[80vh] max-w-[52vw] rounded-[12px] object-contain shadow-[0px_6px_38px_0px_rgba(0,0,0,0.18),0px_6px_24px_0px_rgba(0,0,0,0.12),0px_1px_1px_0px_rgba(0,0,0,0.2)]"
+                />
               </motion.div>
             </div>
           );
