@@ -11,6 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VideoPlayer } from "@/components/video-player";
 import { fetchPreview, publishPost } from "./actions";
 import type { NormalizedTweet } from "@/lib/providers/tweet/syndication";
+import type { PaletteColor } from "@/lib/media/colors";
+import { PaletteEditor } from "@/features/posts/palette-editor";
 
 type Category = { id: string; name: string; slug: string };
 
@@ -18,6 +20,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [tweet, setTweet] = useState<NormalizedTweet | null>(null);
+  const [palettes, setPalettes] = useState<PaletteColor[][]>([]);
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
@@ -37,6 +40,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
         return;
       }
       setTweet(res.tweet);
+      setPalettes(res.colors);
       setCaption(res.tweet.text);
       setTitle("");
       setSelectedCats(new Set());
@@ -60,6 +64,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
         title,
         caption,
         categoryIds: Array.from(selectedCats),
+        mediaColors: palettes,
       });
       if (!res.ok) {
         toast.error(res.error);
@@ -142,6 +147,29 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
             </div>
 
             <div className="grid gap-2">
+              <div className="flex items-baseline justify-between">
+                <Label>Colours</Label>
+                <span className="text-xs text-muted-foreground">
+                  Auto-extracted — tap a swatch to recolour before publishing.
+                </span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {tweet.media.map((m, i) => (
+                  <PaletteEditor
+                    key={i}
+                    colors={palettes[i] ?? []}
+                    onColors={(next) =>
+                      setPalettes((prev) =>
+                        prev.map((c, idx) => (idx === i ? next : c)),
+                      )
+                    }
+                    thumbnailSrc={m.kind === "image" ? m.url : m.posterUrl}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
               <Label htmlFor="title">Title (optional)</Label>
               <Input
                 id="title"
@@ -190,6 +218,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                 variant="outline"
                 onClick={() => {
                   setTweet(null);
+                  setPalettes([]);
                   setUrl("");
                 }}
                 disabled={publishPending}

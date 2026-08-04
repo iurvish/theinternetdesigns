@@ -14,10 +14,34 @@ import { requireAdmin } from "@/lib/auth/require-admin";
 import { parseTweetId } from "@/lib/providers/tweet/parse-url";
 import { fetchTweet, type NormalizedTweet } from "@/lib/providers/tweet/syndication";
 import { processImage, processVideo, uploadAvatar } from "@/lib/media/process";
+import { extractPalette, type PaletteColor } from "@/lib/media/colors";
+import { sanitizePalette } from "@/lib/media/color-utils";
 
 export type PreviewResult =
-  | { ok: true; tweet: NormalizedTweet; existing: boolean }
+  | {
+      ok: true;
+      tweet: NormalizedTweet;
+      existing: boolean;
+      /** Dominant palette per media (same order as tweet.media). */
+      colors: PaletteColor[][];
+    }
   | { ok: false; error: string };
+
+/** Extract a palette from a media URL, tolerant of fetch/decoding failures. */
+async function paletteFromUrl(url: string | null): Promise<PaletteColor[]> {
+  if (!url) return [];
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": "Mozilla/5.0 (idesigns)" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const buffer = Buffer.from(new Uint8Array(await res.arrayBuffer()));
+    return await extractPalette(buffer);
+  } catch {
+    return [];
+  }
+}
 
 export async function fetchPreview(input: string): Promise<PreviewResult> {
   await requireAdmin();
@@ -33,7 +57,16 @@ export async function fetchPreview(input: string): Promise<PreviewResult> {
       .from(posts)
       .where(and(eq(posts.source, "x"), eq(posts.sourceId, id)))
       .limit(1);
-    return { ok: true, tweet, existing: Boolean(existing) };
+    const existingFlag = Boolean(existing);
+    // Extract palettes up front so the admin can review/edit before publishing.
+    const colors = existingFlag
+      ? []
+      : await Promise.all(
+          tweet.media.map((m) =>
+            paletteFromUrl(m.kind === "image" ? m.url : m.posterUrl),
+          ),
+        );
+    return { ok: true, tweet, existing: existingFlag, colors };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Fetch failed." };
   }
@@ -44,6 +77,8 @@ export type PublishInput = {
   title: string;
   caption: string;
   categoryIds: string[];
+  /** Admin-reviewed palette per media (same order as tweet.media). */
+  mediaColors?: PaletteColor[][];
 };
 
 export type PublishResult =
@@ -106,6 +141,8 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
     const processedMedia = await Promise.all(
       tweet.media.map(async (m, i) => {
         const keyPrefix = `${keyBase}/${i}`;
+        // Prefer the admin-reviewed palette; fall back to fresh extraction.
+        const edited = input.mediaColors?.[i];
         if (m.kind === "image") {
           const p = await processImage(m.url, keyPrefix);
           return {
@@ -121,7 +158,7 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
             height: p.height ?? m.height,
             durationMs: null,
             sourceMediaUrl: m.url,
-            colors: p.colors,
+            colors: edited ? sanitizePalette(edited) : p.colors,
           };
         }
         const p = await processVideo(m.url, m.posterUrl, keyPrefix);
@@ -138,7 +175,7 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
           height: m.height,
           durationMs: m.durationMs,
           sourceMediaUrl: m.url,
-          colors: p.colors,
+          colors: edited ? sanitizePalette(edited) : p.colors,
         };
       }),
     );
