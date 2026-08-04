@@ -23,21 +23,10 @@ const PEEK_SCALE = 0.76; // neighbours shrink so the centre slide is the focus
 const FRAME_SHADOW =
   "0px 6px 38px 0px rgba(0,0,0,0.18), 0px 6px 24px 0px rgba(0,0,0,0.12), 0px 1px 1px 0px rgba(0,0,0,0.2)";
 
-// Hero image transition. Paging slides directionally; a post switch (dir 0, blur
-// true) focus-pulls in — blur masks the crossfade between two unrelated images.
-const HERO_CONTENT = {
-  enter: (c: { dir: number; blur: boolean }) => ({
-    opacity: 0,
-    x: `${c.dir * 22}%`,
-    filter: c.blur ? "blur(12px)" : "blur(0px)",
-  }),
-  center: { opacity: 1, x: "0%", filter: "blur(0px)" },
-  exit: (c: { dir: number; blur: boolean }) => ({
-    opacity: 0,
-    x: `${c.dir * -22}%`,
-    filter: "blur(6px)",
-  }),
-} as const;
+// Backdrop / ambient fade on close is stretched to ~match the reverse morph, so
+// the grid card lands exactly as the scrim clears — one unified exit, never a
+// "card still flying home" after the overlay has visually closed.
+const CLOSE_FADE = { duration: 0.42, ease: [0.33, 0, 0.2, 1] } as const;
 
 type MediaItem = PostListItem["images"][number];
 
@@ -63,15 +52,12 @@ export function PostOverlay({
   // Resume on whatever image the card was previewing, so the opening morph hands
   // off between the same picture.
   const [mediaIndex, setMediaIndex] = useState(initialMediaIndex);
-  // Direction of the last in-post media page (+1 / -1), so the hero content
-  // crossfade drifts the right way.
-  const [mediaDir, setMediaDir] = useState(0);
   // Once the user pages to a different post, the lightbox is no longer anchored
   // to the card it opened from — we drop the shared-element layoutId so switching
   // and closing become clean cross-fades instead of morphing to the wrong card.
   const [detached, setDetached] = useState(false);
-  // True briefly right after a post switch — peeks stay hidden so the switch is a
-  // clean centre cross-fade instead of the neighbour stack shuffling into place.
+  // True briefly right after a post switch — the filmstrip focus-pulls in (blur)
+  // rather than sliding, since the two posts' images are unrelated.
   const [switching, setSwitching] = useState(false);
   const [stage, setStage] = useState(() => ({
     w: typeof window !== "undefined" ? Math.max(320, window.innerWidth - 340) : 1200,
@@ -85,7 +71,6 @@ export function PostOverlay({
   if (prevIndex.current !== index) {
     prevIndex.current = index;
     setMediaIndex(0);
-    setMediaDir(0);
     setSwitching(true);
     setDetached(true);
   }
@@ -131,10 +116,10 @@ export function PostOverlay({
 
   useEffect(() => {
     if (!closing) return;
-    // The stage (hero) unmounts the instant `closing` flips, kicking off the
-    // reverse morph immediately; this only needs to outlast the backdrop fade and
-    // panel slide-out so they finish gracefully before the portal is torn down.
-    const t = setTimeout(onClose, 400);
+    // The morph layer unmounts the instant `closing` flips, kicking off the
+    // reverse morph immediately; this only needs to outlast the (now morph-matched)
+    // backdrop fade and panel slide so they finish before the portal is torn down.
+    const t = setTimeout(onClose, 460);
     return () => clearTimeout(t);
   }, [closing, onClose]);
 
@@ -142,7 +127,6 @@ export function PostOverlay({
     (d: number) => {
       const nextI = mediaIndex + d;
       if (nextI < 0 || nextI >= mediaCount) return;
-      setMediaDir(d);
       setMediaIndex(nextI);
     },
     [mediaIndex, mediaCount],
@@ -202,7 +186,7 @@ export function PostOverlay({
         className="absolute inset-0 bg-black/30 backdrop-blur-[3px]"
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
-        transition={FADE}
+        transition={closing ? CLOSE_FADE : FADE}
         onClick={requestClose}
       />
 
@@ -212,7 +196,7 @@ export function PostOverlay({
         className="pointer-events-none absolute inset-0 overflow-hidden mix-blend-soft-light"
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
-        transition={{ duration: 0.5 }}
+        transition={closing ? CLOSE_FADE : { duration: 0.5 }}
       >
         <div className="absolute -left-40 -top-40 h-[900px] w-[520px] rotate-[-60deg] rounded-full bg-white/40 blur-[120px]" />
         <div className="absolute left-1/3 -top-60 h-[1000px] w-[620px] rotate-[-55deg] rounded-full bg-white/30 blur-[140px]" />
@@ -241,82 +225,95 @@ export function PostOverlay({
         </ControlButton>
       </motion.div>
 
-      {/* Carousel stage — a stable centred hero (which carries the shared-element
-          layoutId) flanked by decorative peek neighbours. The whole stage unmounts
-          the moment `closing` flips, which hands the layoutId back to the grid card
-          for a clean reverse morph. Clipped to the area left of the panel. */}
+      {/* Carousel stage. Two layers: a cohesive filmstrip that the user browses
+          (every slide slides & scales together), and a hidden hero behind it that
+          carries the shared-element layoutId so open/close morph to/from the grid
+          card. Clipped to the area left of the panel. */}
       <div
         ref={stageRef}
         className="pointer-events-none absolute inset-y-0 left-0 right-0 overflow-hidden md:right-[340px]"
       >
-        {!closing ? (
-          <>
-            {/* Peek neighbours — decorative only, no layoutId so paging never fights
-                the hero's shared-element transition. Hidden during the entrance morph
-                and right after a post switch. */}
-            {media.map((m, i) => {
-              const offset = i - mediaIndex;
-              if (offset === 0 || Math.abs(offset) > 2) return null;
-              const step = Math.abs(offset);
-              const x = Math.sign(offset) * frameW * PEEK_OFFSET * (step === 1 ? 1 : 1.92);
-              const zIndex = step === 1 ? 20 : 10;
-              const peekHidden = phase === "in" || switching;
-              return (
-                <motion.div
-                  key={`peek-${i}`}
-                  className="pointer-events-auto absolute left-1/2 top-1/2 cursor-pointer"
-                  style={{ width: frameW, height: frameH, marginLeft: -frameW / 2, marginTop: -frameH / 2, zIndex }}
-                  onClick={() => {
-                    setMediaDir(Math.sign(offset));
-                    setMediaIndex(i);
-                  }}
-                  initial={false}
-                  animate={{ x, scale: PEEK_SCALE, opacity: peekHidden ? 0 : 1 }}
-                  transition={{ x: SLIDE, scale: SLIDE, opacity: FADE }}
-                >
-                  <div
-                    className="size-full overflow-hidden rounded-[12px]"
-                    style={{ boxShadow: FRAME_SHADOW }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={m.url} alt="" draggable={false} className="size-full select-none object-cover" />
-                  </div>
-                </motion.div>
-              );
-            })}
-
-            {/* Hero — one stable element across paging and switching, so its layoutId
-                never thrashes. It only holds the layoutId while still anchored to the
-                card it opened from (dropped once the user pages to another post). */}
-            <div
-              className="absolute left-1/2 top-1/2 z-30"
-              style={{ width: frameW, height: frameH, marginLeft: -frameW / 2, marginTop: -frameH / 2 }}
+        {/* Browse layer — the filmstrip. All visible slides animate to their new
+            offset (translate + scale) together when the media index changes, so
+            paging reads as one continuous carousel. Fades out on a detached close;
+            on an anchored close it unmounts instantly and the hero morph takes over. */}
+        {!closing || detached ? (
+          <AnimatePresence initial={false} mode="popLayout">
+            <motion.div
+              key={post.id}
+              className="absolute inset-0"
+              initial={{ opacity: 0, filter: switching ? "blur(12px)" : "blur(0px)" }}
+              animate={{ opacity: closing ? 0 : phase === "in" ? 0 : 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, filter: "blur(6px)" }}
+              transition={{ opacity: FADE, filter: { duration: 0.34, ease: [0.23, 1, 0.32, 1] } }}
             >
-              <motion.div
-                layoutId={detached ? undefined : `post-${post.id}`}
-                transition={OPEN_MORPH}
-                onLayoutAnimationComplete={phase === "in" ? () => setPhase("browse") : undefined}
-                className="relative size-full overflow-hidden rounded-[12px]"
-                style={{ boxShadow: FRAME_SHADOW }}
-              >
-                <AnimatePresence initial={false} custom={{ dir: mediaDir, blur: switching }}>
-                  <motion.img
-                    key={`${post.id}-${mediaIndex}`}
-                    src={media[mediaIndex]?.url}
-                    alt={post.caption ?? ""}
-                    draggable={false}
-                    custom={{ dir: mediaDir, blur: switching }}
-                    variants={HERO_CONTENT}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    transition={{ x: SLIDE, opacity: FADE, filter: { duration: 0.34, ease: [0.23, 1, 0.32, 1] } }}
-                    className="absolute inset-0 size-full select-none object-cover"
-                  />
-                </AnimatePresence>
-              </motion.div>
-            </div>
-          </>
+              {media.map((m, i) => {
+                const offset = i - mediaIndex;
+                if (Math.abs(offset) > 2) return null;
+                const isActive = offset === 0;
+                const step = Math.abs(offset);
+                const x = Math.sign(offset) * frameW * PEEK_OFFSET * (step === 1 ? 1 : 1.92);
+                const scale = isActive ? 1 : PEEK_SCALE;
+                const zIndex = isActive ? 30 : 20 - step;
+                return (
+                  <motion.div
+                    key={`slide-${i}`}
+                    className={
+                      isActive
+                        ? "pointer-events-auto absolute left-1/2 top-1/2"
+                        : "pointer-events-auto absolute left-1/2 top-1/2 cursor-pointer"
+                    }
+                    style={{ width: frameW, height: frameH, marginLeft: -frameW / 2, marginTop: -frameH / 2, zIndex }}
+                    onClick={() => {
+                      if (!isActive) setMediaIndex(i);
+                    }}
+                    initial={false}
+                    animate={{ x: isActive ? 0 : x, scale }}
+                    transition={{ x: SLIDE, scale: SLIDE }}
+                  >
+                    <div className="size-full overflow-hidden rounded-[12px]" style={{ boxShadow: FRAME_SHADOW }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={m.url}
+                        alt={isActive ? (post.caption ?? "") : ""}
+                        draggable={false}
+                        className="size-full select-none object-cover"
+                      />
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </motion.div>
+          </AnimatePresence>
+        ) : null}
+
+        {/* Morph layer — hidden during browse (opacity 0), visible only during the
+            entrance morph. Holds the shared-element layoutId continuously while
+            anchored, so unmounting it on close hands the morph straight to the grid
+            card (no thrash, no re-add flash). */}
+        {!closing ? (
+          <motion.div
+            className="pointer-events-none absolute left-1/2 top-1/2 z-40"
+            style={{ width: frameW, height: frameH, marginLeft: -frameW / 2, marginTop: -frameH / 2 }}
+            animate={{ opacity: phase === "in" ? 1 : 0 }}
+            transition={FADE}
+          >
+            <motion.div
+              layoutId={detached ? undefined : `post-${post.id}`}
+              transition={OPEN_MORPH}
+              onLayoutAnimationComplete={phase === "in" ? () => setPhase("browse") : undefined}
+              className="relative size-full overflow-hidden rounded-[12px]"
+              style={{ boxShadow: FRAME_SHADOW }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={media[mediaIndex]?.url}
+                alt=""
+                draggable={false}
+                className="absolute inset-0 size-full select-none object-cover"
+              />
+            </motion.div>
+          </motion.div>
         ) : null}
       </div>
 

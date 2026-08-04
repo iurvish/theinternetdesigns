@@ -409,7 +409,7 @@ function MasonryCard({
   return (
     <motion.div
       layoutId={`post-${post.id}`}
-      transition={{ type: "spring", duration: 0.44, bounce: 0.1 }}
+      transition={{ type: "spring", duration: 0.4, bounce: 0.08 }}
       role="button"
       tabIndex={0}
       onClick={() => onOpen(index)}
