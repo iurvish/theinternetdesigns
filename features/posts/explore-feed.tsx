@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, use, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { ArrowUpRight, ChevronDown, Play } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Play } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
@@ -88,6 +88,14 @@ function FeedBody({
 }) {
   const { posts, error } = use(postsPromise);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // Single source of truth for which media index each post is showing. Shared by
+  // the grid cards (hover paging) and the lightbox, so the shared-element morph
+  // always hands off between the *same* image — no content jump on open/close —
+  // and opening a card resumes on the image you were previewing.
+  const [mediaByPost, setMediaByPost] = useState<Record<string, number>>({});
+  const setPostMedia = useCallback((postId: string, idx: number) => {
+    setMediaByPost((m) => (m[postId] === idx ? m : { ...m, [postId]: idx }));
+  }, []);
 
   const visible = useMemo(() => {
     const filtered =
@@ -117,7 +125,14 @@ function FeedBody({
         ) : (
           <div className="w-full columns-2 gap-2.5 md:columns-3 [column-fill:_balance]">
             {visible.map((p, i) => (
-              <MasonryCard key={p.id} post={p} index={i} onOpen={setOpenIndex} />
+              <MasonryCard
+                key={p.id}
+                post={p}
+                index={i}
+                onOpen={setOpenIndex}
+                mediaIndex={mediaByPost[p.id] ?? 0}
+                onMediaIndex={(idx) => setPostMedia(p.id, idx)}
+              />
             ))}
           </div>
         )}
@@ -129,7 +144,9 @@ function FeedBody({
             key="post-overlay"
             posts={visible}
             index={openIndex}
+            initialMediaIndex={mediaByPost[visible[openIndex]?.id] ?? 0}
             onIndexChange={setOpenIndex}
+            onMediaIndex={setPostMedia}
             onClose={() => setOpenIndex(null)}
           />
         ) : null}
@@ -327,15 +344,31 @@ function SortMenu({
   );
 }
 
+// Snappy spring for the hover media-nav pill — spatial, so a spring; short and
+// low-bounce because it's a frequently-seen hover affordance (animation standards).
+const NAV_SPRING = { type: "spring", duration: 0.34, bounce: 0.22 } as const;
+const NAV_FADE = { duration: 0.22, ease: [0.23, 1, 0.32, 1] } as const;
+
+// Directional crossfade for in-card media paging (custom = travel direction).
+const CARD_SLIDE = {
+  enter: (d: number) => ({ opacity: 0, x: d * 14 }),
+  center: { opacity: 1, x: 0 },
+  exit: (d: number) => ({ opacity: 0, x: d * -14 }),
+} as const;
+
 /** Small skeuomorphic layout-preview widget from the toolbar (node 1:22). */
 function MasonryCard({
   post,
   index,
   onOpen,
+  mediaIndex,
+  onMediaIndex,
 }: {
   post: PostListItem;
   index: number;
   onOpen: (i: number) => void;
+  mediaIndex: number;
+  onMediaIndex: (idx: number) => void;
 }) {
   const aspectRatio =
     post.thumbnail?.width && post.thumbnail?.height
@@ -345,6 +378,33 @@ function MasonryCard({
         : index % 3 === 1
           ? "1"
           : "1066 / 720";
+
+  // The card can page through the post's media in place on hover. Media[0] keeps
+  // using the light thumbnail (fast grid + the shared-element morph source);
+  // deeper images pull their medium render only once the user pages to them.
+  const media = post.images.length
+    ? post.images
+    : post.thumbnail
+      ? [{ url: post.thumbnail.url, posterUrl: null, kind: "image" as const, width: post.thumbnail.width, height: post.thumbnail.height }]
+      : [];
+  const mediaCount = media.length;
+  const isGallery = !post.hasVideo && mediaCount > 1;
+
+  // Clamp defensively — the shared map could hold a stale index after a filter change.
+  const mediaIdx = Math.min(Math.max(mediaIndex, 0), Math.max(mediaCount - 1, 0));
+  const [hovered, setHovered] = useState(false);
+  // Track the direction of the last page so the crossfade drifts the right way.
+  const [dir, setDir] = useState(0);
+
+  const page = (d: number) => {
+    const next = mediaIdx + d;
+    if (next < 0 || next >= mediaCount) return;
+    setDir(d);
+    onMediaIndex(next);
+  };
+
+  const activeSrc =
+    mediaIdx === 0 ? (post.thumbnail?.url ?? media[0]?.url) : media[mediaIdx]?.url;
 
   return (
     <motion.div
@@ -359,17 +419,35 @@ function MasonryCard({
           onOpen(index);
         }
       }}
+      onHoverStart={() => setHovered(true)}
+      onHoverEnd={() => setHovered(false)}
       className="group relative mb-2.5 block cursor-pointer break-inside-avoid overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]"
     >
       <div className="relative w-full" style={{ aspectRatio }}>
-        {post.thumbnail?.url ? (
-          <Image
-            src={post.thumbnail.url}
-            alt={post.caption ?? post.title ?? ""}
-            fill
-            sizes="(max-width: 768px) 50vw, 33vw"
-            className="object-cover"
-          />
+        {activeSrc ? (
+          // Crossfade between images as the user pages. The active render slides a
+          // hair in the travel direction so paging reads directional, not a flat dissolve.
+          <AnimatePresence initial={false} custom={dir}>
+            <motion.div
+              key={mediaIdx}
+              className="absolute inset-0"
+              custom={dir}
+              variants={CARD_SLIDE}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ opacity: NAV_FADE, x: NAV_SPRING }}
+            >
+              <Image
+                src={activeSrc}
+                alt={post.caption ?? post.title ?? ""}
+                fill
+                sizes="(max-width: 768px) 50vw, 33vw"
+                className="object-cover"
+                priority={index < 4 && mediaIdx === 0}
+              />
+            </motion.div>
+          </AnimatePresence>
         ) : null}
       </div>
 
@@ -378,15 +456,19 @@ function MasonryCard({
         <ArrowUpRight className="size-4.5 text-white" strokeWidth={2.2} />
       </span>
 
-      {/* top-right: image count / video badge */}
+      {/* top-right: video badge, or hover media navigator for galleries */}
       {post.hasVideo ? (
         <span className="pointer-events-none absolute right-2.5 top-2.5 flex items-center gap-1 rounded-3xl bg-[#c4c4c5]/65 px-3 py-1.5 text-sm font-medium text-white shadow-[inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]">
           <Play className="size-3.5 fill-white" />
         </span>
-      ) : post.imageCount > 1 ? (
-        <span className="pointer-events-none absolute right-2.5 top-2.5 flex items-center justify-center rounded-3xl bg-[#c4c4c5]/65 px-3 py-2 text-sm font-medium leading-none text-white shadow-[inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]">
-          {post.imageCount}
-        </span>
+      ) : isGallery ? (
+        <MediaNav
+          count={mediaCount}
+          index={mediaIdx}
+          hovered={hovered}
+          onPrev={() => page(-1)}
+          onNext={() => page(1)}
+        />
       ) : null}
 
       {/* bottom-left: creator avatar */}
@@ -402,6 +484,96 @@ function MasonryCard({
         </span>
       ) : null}
     </motion.div>
+  );
+}
+
+/**
+ * Hover media navigator (Figma node 26:75). At rest it's the compact count pill.
+ * On card hover the chevrons pop out and the pill expands (framer `layout` picks
+ * up the width delta); the number switches from total → current position. Each
+ * chevron fills with a grey disc on its own hover, and clicks page the card's
+ * media without opening the lightbox.
+ */
+function MediaNav({
+  count,
+  index,
+  hovered,
+  onPrev,
+  onNext,
+}: {
+  count: number;
+  index: number;
+  hovered: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <motion.div
+      layout
+      transition={NAV_SPRING}
+      onClick={(e) => e.stopPropagation()}
+      className="pointer-events-auto absolute right-2.5 top-2.5 flex items-center rounded-full bg-[#c4c4c5]/65 p-0.5 text-white shadow-[0_0_0_0.3px_rgba(0,0,0,0.06),0_3px_6px_-2px_rgba(0,0,0,0.04),inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]"
+    >
+      <AnimatePresence initial={false} mode="popLayout">
+        {hovered ? (
+          <NavChevron
+            key="prev"
+            side="left"
+            disabled={index === 0}
+            onClick={onPrev}
+          />
+        ) : null}
+      </AnimatePresence>
+
+      <motion.span
+        layout="position"
+        className="min-w-4 px-1.5 text-center text-sm font-medium leading-none tabular-nums tracking-tight"
+      >
+        {hovered ? index + 1 : count}
+      </motion.span>
+
+      <AnimatePresence initial={false} mode="popLayout">
+        {hovered ? (
+          <NavChevron
+            key="next"
+            side="right"
+            disabled={index === count - 1}
+            onClick={onNext}
+          />
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function NavChevron({
+  side,
+  disabled,
+  onClick,
+}: {
+  side: "left" | "right";
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const Icon = side === "left" ? ChevronLeft : ChevronRight;
+  return (
+    <motion.button
+      type="button"
+      aria-label={side === "left" ? "Previous image" : "Next image"}
+      disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) onClick();
+      }}
+      initial={{ opacity: 0, scale: 0.4 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.4 }}
+      transition={NAV_SPRING}
+      whileTap={disabled ? undefined : { scale: 0.82 }}
+      className="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-150 hover:bg-[#b7b7b8] disabled:opacity-35 disabled:hover:bg-transparent"
+    >
+      <Icon className="size-3" strokeWidth={2.4} />
+    </motion.button>
   );
 }
 

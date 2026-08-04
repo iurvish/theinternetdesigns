@@ -25,19 +25,25 @@ type MediaItem = PostListItem["images"][number];
 export function PostOverlay({
   posts,
   index,
+  initialMediaIndex = 0,
   onIndexChange,
+  onMediaIndex,
   onClose,
 }: {
   posts: PostListItem[];
   index: number;
+  initialMediaIndex?: number;
   onIndexChange: (i: number) => void;
+  onMediaIndex?: (postId: string, idx: number) => void;
   onClose: () => void;
 }) {
   const post = posts[index];
 
   const [phase, setPhase] = useState<"in" | "browse">("in");
   const [closing, setClosing] = useState(false);
-  const [mediaIndex, setMediaIndex] = useState(0);
+  // Resume on whatever image the card was previewing, so the opening morph hands
+  // off between the same picture.
+  const [mediaIndex, setMediaIndex] = useState(initialMediaIndex);
   // True briefly right after a post switch — peeks stay hidden so the switch is a
   // clean centre cross-fade instead of the neighbour stack shuffling into place.
   const [switching, setSwitching] = useState(false);
@@ -93,9 +99,18 @@ export function PostOverlay({
 
   const requestClose = useCallback(() => setClosing(true), []);
 
+  // Keep the card's displayed image in lock-step with the lightbox so the
+  // shared-element morph (on close, at any media index) hands off between the
+  // same picture instead of crossfading two different images.
+  useEffect(() => {
+    if (post) onMediaIndex?.(post.id, mediaIndex);
+  }, [post, mediaIndex, onMediaIndex]);
+
   useEffect(() => {
     if (!closing) return;
-    const t = setTimeout(onClose, 120);
+    // Long enough for the backdrop fade, panel slide, and morph to finish while
+    // still mounted — the old 120ms cut the panel's 0.4s slide off mid-flight.
+    const t = setTimeout(onClose, 380);
     return () => clearTimeout(t);
   }, [closing, onClose]);
 
