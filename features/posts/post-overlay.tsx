@@ -52,10 +52,6 @@ export function PostOverlay({
   // Resume on whatever image the card was previewing, so the opening morph hands
   // off between the same picture.
   const [mediaIndex, setMediaIndex] = useState(initialMediaIndex);
-  // Once the user pages to a different post, the lightbox is no longer anchored
-  // to the card it opened from — we drop the shared-element layoutId so switching
-  // and closing become clean cross-fades instead of morphing to the wrong card.
-  const [detached, setDetached] = useState(false);
   // True briefly right after a post switch — the filmstrip focus-pulls in (blur)
   // rather than sliding, since the two posts' images are unrelated.
   const [switching, setSwitching] = useState(false);
@@ -72,7 +68,6 @@ export function PostOverlay({
     prevIndex.current = index;
     setMediaIndex(0);
     setSwitching(true);
-    setDetached(true);
   }
 
   const media: MediaItem[] = post?.images?.length
@@ -110,9 +105,9 @@ export function PostOverlay({
   // left untouched while browsing (so it never visibly changes behind the scrim).
   // The parent resets it back to the first image once the exit finishes.
   const requestClose = useCallback(() => {
-    if (post && !detached) onMediaIndex?.(post.id, mediaIndex);
+    if (post) onMediaIndex?.(post.id, mediaIndex);
     setClosing(true);
-  }, [post, detached, mediaIndex, onMediaIndex]);
+  }, [post, mediaIndex, onMediaIndex]);
 
   useEffect(() => {
     if (!closing) return;
@@ -235,15 +230,15 @@ export function PostOverlay({
       >
         {/* Browse layer — the filmstrip. All visible slides animate to their new
             offset (translate + scale) together when the media index changes, so
-            paging reads as one continuous carousel. Fades out on a detached close;
-            on an anchored close it unmounts instantly and the hero morph takes over. */}
-        {!closing || detached ? (
+            paging reads as one continuous carousel. On close it unmounts instantly
+            and the hero morph of the *active* post takes over. */}
+        {!closing ? (
           <AnimatePresence initial={false} mode="popLayout">
             <motion.div
               key={post.id}
               className="absolute inset-0 z-30"
               initial={{ opacity: 0, filter: switching ? "blur(12px)" : "blur(0px)" }}
-              animate={{ opacity: closing ? 0 : phase === "in" ? 0 : 1, filter: "blur(0px)" }}
+              animate={{ opacity: phase === "in" ? 0 : 1, filter: "blur(0px)" }}
               exit={{ opacity: 0, filter: "blur(6px)" }}
               transition={{ opacity: FADE, filter: { duration: 0.34, ease: [0.23, 1, 0.32, 1] } }}
             >
@@ -302,7 +297,7 @@ export function PostOverlay({
             transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1], delay: phase === "in" ? 0 : 0.24 }}
           >
             <motion.div
-              layoutId={detached ? undefined : `post-${post.id}`}
+              layoutId={`post-${post.id}`}
               transition={OPEN_MORPH}
               onLayoutAnimationComplete={phase === "in" ? () => setPhase("browse") : undefined}
               className="relative size-full overflow-hidden rounded-[12px]"
