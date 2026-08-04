@@ -1,6 +1,7 @@
 import "server-only";
 import sharp from "sharp";
 import { uploadToR2 } from "@/lib/r2/upload";
+import { extractPalette, type PaletteColor } from "./colors";
 
 const MAX_WIDTH = 1920;
 const THUMB_WIDTH = 640;
@@ -23,6 +24,7 @@ export type ProcessedImage = {
   thumbnailUrl: string;
   width: number | null;
   height: number | null;
+  colors: PaletteColor[];
 };
 
 export async function processImage(
@@ -33,7 +35,7 @@ export async function processImage(
   const img = sharp(buffer, { failOn: "none" });
   const meta = await img.metadata();
 
-  const [fullAvif, thumbAvif] = await Promise.all([
+  const [fullAvif, thumbAvif, colors] = await Promise.all([
     sharp(buffer, { failOn: "none" })
       .rotate()
       .resize({ width: MAX_WIDTH, withoutEnlargement: true })
@@ -44,6 +46,7 @@ export async function processImage(
       .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
       .avif({ quality: 55, effort: 4 })
       .toBuffer(),
+    extractPalette(buffer),
   ]);
 
   const [originalUrl, thumbnailUrl] = await Promise.all([
@@ -64,12 +67,14 @@ export async function processImage(
     thumbnailUrl,
     width: meta.width ?? null,
     height: meta.height ?? null,
+    colors,
   };
 }
 
 export type ProcessedVideo = {
   originalUrl: string;
   posterUrl: string | null;
+  colors: PaletteColor[];
 };
 
 export async function processVideo(
@@ -93,14 +98,19 @@ export async function processVideo(
   });
 
   let posterUrl: string | null = null;
+  let colors: PaletteColor[] = [];
   if (posterSourceUrl) {
     try {
       const poster = await download(posterSourceUrl);
-      const posterAvif = await sharp(poster.buffer, { failOn: "none" })
-        .rotate()
-        .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
-        .avif({ quality: 60, effort: 4 })
-        .toBuffer();
+      const [posterAvif, posterColors] = await Promise.all([
+        sharp(poster.buffer, { failOn: "none" })
+          .rotate()
+          .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+          .avif({ quality: 60, effort: 4 })
+          .toBuffer(),
+        extractPalette(poster.buffer),
+      ]);
+      colors = posterColors;
       posterUrl = await uploadToR2({
         key: `${keyPrefix}/poster.avif`,
         body: posterAvif,
@@ -111,7 +121,7 @@ export async function processVideo(
     }
   }
 
-  return { originalUrl, posterUrl };
+  return { originalUrl, posterUrl, colors };
 }
 
 export async function uploadAvatar(

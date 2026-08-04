@@ -166,6 +166,61 @@ export async function searchPosts(query: string, opts: { limit?: number } = {}) 
   return loadPostsWithRelations(rows as unknown as (typeof posts.$inferSelect)[]);
 }
 
+/** Max squared RGB distance for a palette colour to count as a match (~48/channel). */
+const COLOR_MATCH_SQ = 48 * 48;
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const int = parseInt(m[1], 16);
+  return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
+}
+
+/**
+ * Find published posts whose media palette contains a colour close to EVERY
+ * requested colour ("designs using these colours"). Ranked by how tightly the
+ * palette matches — the sum, across requested colours, of the nearest palette
+ * colour's distance. Matches against the per-media `colors` jsonb populated at
+ * upload time.
+ */
+export async function searchPostsByColors(
+  hexes: string[],
+  opts: { limit?: number } = {},
+) {
+  const targets = hexes.map(hexToRgb).filter((c): c is { r: number; g: number; b: number } => c !== null);
+  if (targets.length === 0) return [];
+  const limit = opts.limit ?? 120;
+
+  // Per requested colour: the closest palette colour across the post's media.
+  const dist = (t: { r: number; g: number; b: number }) => sql`
+    (select min(
+       power((c->>'r')::int - ${t.r}, 2) +
+       power((c->>'g')::int - ${t.g}, 2) +
+       power((c->>'b')::int - ${t.b}, 2))
+     from ${media} m, jsonb_array_elements(m.colors) c
+     where m.post_id = p.id)
+  `;
+  const nearest = targets.map(dist);
+  // AND semantics: every requested colour must have a match within threshold.
+  const conditions = sql.join(
+    nearest.map((d) => sql`coalesce(${d}, 1e9) <= ${COLOR_MATCH_SQ}`),
+    sql` and `,
+  );
+  // Relevance: total closeness across all requested colours (smaller = better).
+  const score = sql.join(
+    nearest.map((d) => sql`coalesce(${d}, 1e9)`),
+    sql` + `,
+  );
+
+  const rows = await db.execute<typeof posts.$inferSelect>(sql`
+    select p.* from ${posts} p
+    where p.published = true and ${conditions}
+    order by (${score}) asc, p.published_at desc nulls last
+    limit ${limit}
+  `);
+  return loadPostsWithRelations(rows as unknown as (typeof posts.$inferSelect)[]);
+}
+
 export async function getPostById(id: string) {
   const [row] = await db.select().from(posts).where(eq(posts.id, id)).limit(1);
   if (!row) return null;

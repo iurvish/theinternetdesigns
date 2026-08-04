@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { PaletteColor } from "@/lib/media/colors";
 import {
   boolean,
   index,
@@ -121,6 +122,8 @@ export const media = pgTable(
     durationMs: integer("duration_ms"),
     /** Original provider URL (for reference; do not display). */
     sourceMediaUrl: text("source_media_url"),
+    /** Dominant-colour palette with usage percentages, extracted at upload. */
+    colors: jsonb("colors").$type<PaletteColor[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("media_post_idx").on(t.postId, t.position)],

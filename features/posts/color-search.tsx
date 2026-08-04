@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Pipette, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,7 @@ function ColorDotsIcon({ className }: { className?: string }) {
 
 /* ── the control ────────────────────────────────────────────────────────── */
 export function ColorSearch() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [hsv, setHsv] = useState<HSV>({ h: 145, s: 0.55, v: 0.87 });
@@ -122,6 +124,13 @@ export function ColorSearch() {
 
   const hasEyedropper =
     typeof window !== "undefined" && "EyeDropper" in window;
+
+  const runSearch = () => {
+    if (selected.length === 0) return;
+    setOpen(false);
+    const param = selected.map((c) => c.replace("#", "")).join(",");
+    router.push(`/search?colors=${param}`);
+  };
 
   return (
     <div ref={rootRef} className="relative">
@@ -248,7 +257,7 @@ export function ColorSearch() {
             {/* search */}
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={runSearch}
               disabled={selected.length === 0}
               className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#1f2123] py-2.5 text-sm font-medium tracking-tight text-white transition-colors hover:bg-[#2c2f31] disabled:cursor-not-allowed disabled:opacity-40"
             >

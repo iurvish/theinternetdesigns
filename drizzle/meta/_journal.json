@@ -15,6 +15,13 @@
       "when": 1785298070750,
       "tag": "0001_search_index",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785298070751,
+      "tag": "0002_media_colors",
+      "breakpoints": true
     }
   ]
 }

@@ -121,6 +121,7 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
             height: p.height ?? m.height,
             durationMs: null,
             sourceMediaUrl: m.url,
+            colors: p.colors,
           };
         }
         const p = await processVideo(m.url, m.posterUrl, keyPrefix);
@@ -137,6 +138,7 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
           height: m.height,
           durationMs: m.durationMs,
           sourceMediaUrl: m.url,
+          colors: p.colors,
         };
       }),
     );
