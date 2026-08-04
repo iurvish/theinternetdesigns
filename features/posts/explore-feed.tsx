@@ -409,7 +409,7 @@ function MasonryCard({
   return (
     <motion.div
       layoutId={`post-${post.id}`}
-      transition={{ type: "spring", duration: 0.3, bounce: 0.08 }}
+      transition={{ type: "spring", duration: 0.44, bounce: 0.1 }}
       role="button"
       tabIndex={0}
       onClick={() => onOpen(index)}
@@ -489,10 +489,10 @@ function MasonryCard({
 
 /**
  * Hover media navigator (Figma node 26:75). At rest it's the compact count pill.
- * On card hover the chevrons pop out and the pill expands (framer `layout` picks
- * up the width delta); the number switches from total → current position. Each
- * chevron fills with a grey disc on its own hover, and clicks page the card's
- * media without opening the lightbox.
+ * On card hover the chevrons expand out from the sides — only the pill's *width*
+ * grows (each chevron animates its own width 0 → full), so the number itself never
+ * scales, it just gets flanked. Each chevron fills with a grey disc on its own
+ * hover, and clicks page the card's media without opening the lightbox.
  */
 function MediaNav({
   count,
@@ -508,50 +508,29 @@ function MediaNav({
   onNext: () => void;
 }) {
   return (
-    <motion.div
-      layout
-      transition={NAV_SPRING}
+    <div
       onClick={(e) => e.stopPropagation()}
       className="pointer-events-auto absolute right-2.5 top-2.5 flex items-center rounded-full bg-[#c4c4c5]/65 p-0.5 text-white shadow-[0_0_0_0.3px_rgba(0,0,0,0.06),0_3px_6px_-2px_rgba(0,0,0,0.04),inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]"
     >
-      <AnimatePresence initial={false} mode="popLayout">
-        {hovered ? (
-          <NavChevron
-            key="prev"
-            side="left"
-            disabled={index === 0}
-            onClick={onPrev}
-          />
-        ) : null}
-      </AnimatePresence>
+      <NavChevron side="left" show={hovered} disabled={index === 0} onClick={onPrev} />
 
-      <motion.span
-        layout="position"
-        className="min-w-4 px-1.5 text-center text-sm font-medium leading-none tabular-nums tracking-tight"
-      >
+      <span className="min-w-5 px-1 text-center text-[15px] font-medium leading-none tabular-nums tracking-tight">
         {hovered ? index + 1 : count}
-      </motion.span>
+      </span>
 
-      <AnimatePresence initial={false} mode="popLayout">
-        {hovered ? (
-          <NavChevron
-            key="next"
-            side="right"
-            disabled={index === count - 1}
-            onClick={onNext}
-          />
-        ) : null}
-      </AnimatePresence>
-    </motion.div>
+      <NavChevron side="right" show={hovered} disabled={index === count - 1} onClick={onNext} />
+    </div>
   );
 }
 
 function NavChevron({
   side,
+  show,
   disabled,
   onClick,
 }: {
   side: "left" | "right";
+  show: boolean;
   disabled: boolean;
   onClick: () => void;
 }) {
@@ -565,14 +544,15 @@ function NavChevron({
         e.stopPropagation();
         if (!disabled) onClick();
       }}
-      initial={{ opacity: 0, scale: 0.4 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.4 }}
+      // Width animates 0 → 28px so the pill only grows sideways — the number never
+      // scales. Overflow-clip hides the icon while collapsed.
+      initial={false}
+      animate={{ width: show ? 28 : 0, opacity: show ? 1 : 0 }}
       transition={NAV_SPRING}
-      whileTap={disabled ? undefined : { scale: 0.82 }}
-      className="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-150 hover:bg-[#b7b7b8] disabled:opacity-35 disabled:hover:bg-transparent"
+      whileTap={disabled || !show ? undefined : { scale: 0.86 }}
+      className="flex h-7 shrink-0 items-center justify-center overflow-clip rounded-full transition-colors duration-150 hover:bg-[#b7b7b8] disabled:opacity-35 disabled:hover:bg-transparent"
     >
-      <Icon className="size-3" strokeWidth={2.4} />
+      <Icon className="size-3.5 shrink-0" strokeWidth={2.4} />
     </motion.button>
   );
 }
