@@ -105,14 +105,14 @@ export function PostOverlay({
     return () => clearTimeout(t);
   }, [switching]);
 
-  const requestClose = useCallback(() => setClosing(true), []);
-
-  // Keep the card's displayed image in lock-step with the lightbox so the
-  // shared-element morph (on close, at any media index) hands off between the
-  // same picture instead of crossfading two different images.
-  useEffect(() => {
-    if (post) onMediaIndex?.(post.id, mediaIndex);
-  }, [post, mediaIndex, onMediaIndex]);
+  // On close (only), snap the grid card to whatever media the lightbox is on, so
+  // the reverse morph hands off between the *same* picture — the card is otherwise
+  // left untouched while browsing (so it never visibly changes behind the scrim).
+  // The parent resets it back to the first image once the exit finishes.
+  const requestClose = useCallback(() => {
+    if (post && !detached) onMediaIndex?.(post.id, mediaIndex);
+    setClosing(true);
+  }, [post, detached, mediaIndex, onMediaIndex]);
 
   useEffect(() => {
     if (!closing) return;
@@ -241,7 +241,7 @@ export function PostOverlay({
           <AnimatePresence initial={false} mode="popLayout">
             <motion.div
               key={post.id}
-              className="absolute inset-0"
+              className="absolute inset-0 z-30"
               initial={{ opacity: 0, filter: switching ? "blur(12px)" : "blur(0px)" }}
               animate={{ opacity: closing ? 0 : phase === "in" ? 0 : 1, filter: "blur(0px)" }}
               exit={{ opacity: 0, filter: "blur(6px)" }}
@@ -293,10 +293,13 @@ export function PostOverlay({
             card (no thrash, no re-add flash). */}
         {!closing ? (
           <motion.div
-            className="pointer-events-none absolute left-1/2 top-1/2 z-40"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-20"
             style={{ width: frameW, height: frameH, marginLeft: -frameW / 2, marginTop: -frameH / 2 }}
+            // Stays fully opaque behind the filmstrip and only fades out AFTER the
+            // filmstrip has faded in on top — so the centre is never translucent
+            // (no "see-through" flash to the grid during the hand-off).
             animate={{ opacity: phase === "in" ? 1 : 0 }}
-            transition={FADE}
+            transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1], delay: phase === "in" ? 0 : 0.24 }}
           >
             <motion.div
               layoutId={detached ? undefined : `post-${post.id}`}

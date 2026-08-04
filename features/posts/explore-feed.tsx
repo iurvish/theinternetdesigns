@@ -147,7 +147,13 @@ function FeedBody({
             initialMediaIndex={mediaByPost[visible[openIndex]?.id] ?? 0}
             onIndexChange={setOpenIndex}
             onMediaIndex={setPostMedia}
-            onClose={() => setOpenIndex(null)}
+            onClose={() => {
+              // Reset the just-closed card back to its first image once the exit
+              // has played, so the grid always settles on a consistent thumbnail.
+              const closedId = visible[openIndex]?.id;
+              setOpenIndex(null);
+              if (closedId) setPostMedia(closedId, 0);
+            }}
           />
         ) : null}
       </AnimatePresence>
