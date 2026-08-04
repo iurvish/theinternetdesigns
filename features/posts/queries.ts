@@ -212,13 +212,23 @@ export async function searchPostsByColors(
     sql` + `,
   );
 
-  const rows = await db.execute<typeof posts.$inferSelect>(sql`
-    select p.* from ${posts} p
+  // Rank ids via raw SQL, then hydrate full rows through the typed select so
+  // column names map to camelCase (raw `db.execute` returns snake_case).
+  const ranked = await db.execute<{ id: string }>(sql`
+    select p.id from ${posts} p
     where p.published = true and ${conditions}
     order by (${score}) asc, p.published_at desc nulls last
     limit ${limit}
   `);
-  return loadPostsWithRelations(rows as unknown as (typeof posts.$inferSelect)[]);
+  const ids = (ranked as unknown as { id: string }[]).map((r) => r.id);
+  if (ids.length === 0) return [];
+
+  const rows = await db.select().from(posts).where(inArray(posts.id, ids));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered = ids
+    .map((id) => byId.get(id))
+    .filter((r): r is typeof posts.$inferSelect => Boolean(r));
+  return loadPostsWithRelations(ordered);
 }
 
 export async function getPostById(id: string) {

@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import type { PaletteColor } from "@/lib/media/colors";
 import { updatePost } from "../../actions";
+import { MediaPalettes, type EditMedia } from "./media-palettes";
 
 type Category = { id: string; name: string; slug: string };
 
@@ -19,6 +21,7 @@ export function EditPostForm({
   initialPublished,
   initialCategoryIds,
   categories,
+  media,
 }: {
   postId: string;
   initialTitle: string;
@@ -26,12 +29,16 @@ export function EditPostForm({
   initialPublished: boolean;
   initialCategoryIds: string[];
   categories: Category[];
+  media: EditMedia[];
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(initialTitle);
   const [caption, setCaption] = useState(initialCaption);
   const [published, setPublished] = useState(initialPublished);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialCategoryIds));
+  const [palettes, setPalettes] = useState<Record<string, PaletteColor[]>>(() =>
+    Object.fromEntries(media.map((m) => [m.id, m.colors])),
+  );
   const [pending, startTransition] = useTransition();
 
   function toggle(id: string) {
@@ -51,6 +58,10 @@ export function EditPostForm({
         caption,
         published,
         categoryIds: Array.from(selected),
+        mediaColors: media.map((m) => ({
+          mediaId: m.id,
+          colors: palettes[m.id] ?? [],
+        })),
       });
       if (!res.ok) {
         toast.error(res.error);
@@ -107,6 +118,8 @@ export function EditPostForm({
             })}
           </div>
         </div>
+
+        <MediaPalettes media={media} palettes={palettes} onChange={setPalettes} />
 
         <label className="flex items-center gap-2 text-sm">
           <input

@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { VideoPlayer } from "@/components/video-player";
+import { PostPalette } from "@/features/posts/post-palette";
 
 export default async function PostPage({
   params,
@@ -74,6 +75,7 @@ export default async function PostPage({
                 />
               </div>
             )}
+            <PostPalette colors={m.colors ?? []} />
           </div>
         ))}
       </div>

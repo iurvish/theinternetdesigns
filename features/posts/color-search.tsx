@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Check, Pipette, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const MAX_COLORS = 5;
+const MAX_COLORS = 2;
 const CRISP =
   "shadow-[0px_0px_0px_1px_rgba(232,232,232,0.6),0px_3px_9px_0px_rgba(0,0,0,0.02),0px_1px_1px_0px_rgba(0,0,0,0.04)]";
 const POPOVER_SHADOW =

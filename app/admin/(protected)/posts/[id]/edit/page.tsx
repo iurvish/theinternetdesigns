@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { categories, postCategories, posts } from "@/lib/db/schema";
+import { categories, media, postCategories, posts } from "@/lib/db/schema";
 import { EditPostForm } from "./edit-form";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export default async function EditPostPage({
   const [post] = await db.select().from(posts).where(eq(posts.id, id)).limit(1);
   if (!post) notFound();
 
-  const [cats, currentLinks] = await Promise.all([
+  const [cats, currentLinks, mediaRows] = await Promise.all([
     db
       .select({ id: categories.id, name: categories.name, slug: categories.slug })
       .from(categories)
@@ -25,7 +25,27 @@ export default async function EditPostPage({
       .select({ categoryId: postCategories.categoryId })
       .from(postCategories)
       .where(eq(postCategories.postId, id)),
+    db
+      .select({
+        id: media.id,
+        kind: media.kind,
+        position: media.position,
+        thumbnailUrl: media.thumbnailUrl,
+        posterUrl: media.posterUrl,
+        originalUrl: media.originalUrl,
+        colors: media.colors,
+      })
+      .from(media)
+      .where(eq(media.postId, id))
+      .orderBy(asc(media.position)),
   ]);
+
+  const mediaItems = mediaRows.map((m) => ({
+    id: m.id,
+    kind: m.kind,
+    still: m.thumbnailUrl ?? m.posterUrl ?? m.originalUrl,
+    colors: m.colors ?? [],
+  }));
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -37,6 +57,7 @@ export default async function EditPostPage({
         initialPublished={post.published}
         initialCategoryIds={currentLinks.map((l) => l.categoryId)}
         categories={cats}
+        media={mediaItems}
       />
     </div>
   );

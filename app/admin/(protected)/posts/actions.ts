@@ -10,6 +10,8 @@ import {
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { deleteR2Urls } from "@/lib/r2/delete";
+import { sanitizePalette } from "@/lib/media/color-utils";
+import { extractPalette, type PaletteColor } from "@/lib/media/colors";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -56,6 +58,8 @@ export type UpdatePostInput = {
   caption: string;
   published: boolean;
   categoryIds: string[];
+  /** Admin-edited colour palettes, keyed by media id. */
+  mediaColors?: { mediaId: string; colors: PaletteColor[] }[];
 };
 
 export async function updatePost(input: UpdatePostInput): Promise<ActionResult> {
@@ -71,6 +75,15 @@ export async function updatePost(input: UpdatePostInput): Promise<ActionResult> 
           updatedAt: new Date(),
         })
         .where(eq(posts.id, input.postId));
+
+      // Persist edited palettes — re-deriving r/g/b from hex so colour search
+      // stays consistent with what the admin sees.
+      for (const entry of input.mediaColors ?? []) {
+        await tx
+          .update(mediaTable)
+          .set({ colors: sanitizePalette(entry.colors) })
+          .where(and(eq(mediaTable.id, entry.mediaId), eq(mediaTable.postId, input.postId)));
+      }
 
       await tx.delete(postCategories).where(eq(postCategories.postId, input.postId));
 
@@ -94,6 +107,51 @@ export async function updatePost(input: UpdatePostInput): Promise<ActionResult> 
   } catch (err) {
     console.error("[updatePost] failed", err);
     return { ok: false, error: err instanceof Error ? err.message : "Update failed." };
+  }
+}
+
+export type ReextractResult =
+  | { ok: true; colors: PaletteColor[] }
+  | { ok: false; error: string };
+
+/**
+ * Recompute a media's palette from its stored still — the "let the machine pick
+ * again" escape hatch in the editor. Returns the fresh palette for the client
+ * to preview; the admin still has to Save to persist it.
+ */
+export async function reextractMediaColors(
+  mediaId: string,
+): Promise<ReextractResult> {
+  await requireAdmin();
+  try {
+    const [row] = await db
+      .select({
+        kind: mediaTable.kind,
+        originalUrl: mediaTable.originalUrl,
+        thumbnailUrl: mediaTable.thumbnailUrl,
+        posterUrl: mediaTable.posterUrl,
+      })
+      .from(mediaTable)
+      .where(eq(mediaTable.id, mediaId))
+      .limit(1);
+    if (!row) return { ok: false, error: "Media not found." };
+
+    const still =
+      row.kind === "image"
+        ? row.thumbnailUrl ?? row.originalUrl
+        : row.posterUrl ?? row.thumbnailUrl;
+    if (!still) return { ok: false, error: "This media has no still to sample." };
+
+    const res = await fetch(still, {
+      headers: { "user-agent": "Mozilla/5.0 (idesigns)" },
+      cache: "no-store",
+    });
+    if (!res.ok) return { ok: false, error: `Fetch failed (${res.status}).` };
+    const buffer = Buffer.from(new Uint8Array(await res.arrayBuffer()));
+    const colors = await extractPalette(buffer);
+    return { ok: true, colors };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Re-extract failed." };
   }
 }
 

@@ -9,7 +9,7 @@ function parseColors(raw: string | undefined): string[] {
     .split(",")
     .map((c) => (c.startsWith("#") ? c : `#${c}`))
     .filter((c) => /^#[0-9a-f]{6}$/i.test(c))
-    .slice(0, 5);
+    .slice(0, 2);
 }
 
 export default async function SearchPage({
