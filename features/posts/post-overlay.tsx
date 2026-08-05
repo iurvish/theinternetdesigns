@@ -55,6 +55,9 @@ export function PostOverlay({
   // True briefly right after a post switch — the filmstrip focus-pulls in (blur)
   // rather than sliding, since the two posts' images are unrelated.
   const [switching, setSwitching] = useState(false);
+  // Reveal the neighbour peeks shortly after open, independently of the (slower)
+  // entrance morph, so the other media show up quickly instead of waiting it out.
+  const [peeksIn, setPeeksIn] = useState(false);
   const [stage, setStage] = useState(() => ({
     w: typeof window !== "undefined" ? Math.max(320, window.innerWidth - 340) : 1200,
     h: typeof window !== "undefined" ? window.innerHeight : 800,
@@ -93,12 +96,39 @@ export function PostOverlay({
     return () => clearTimeout(t);
   }, [phase]);
 
+  // Peeks fade in ~0.25s after mount — the entrance morph is still finishing, but
+  // the neighbours are already there, so opening a multi-image post feels instant.
+  useEffect(() => {
+    const t = setTimeout(() => setPeeksIn(true), 240);
+    return () => clearTimeout(t);
+  }, []);
+
   // After a post switch settles, let the neighbour peeks fade back in.
   useEffect(() => {
     if (!switching) return;
     const t = setTimeout(() => setSwitching(false), 280);
     return () => clearTimeout(t);
   }, [switching]);
+
+  // Warm the browser cache with every image in the open post so the neighbouring
+  // media appear instantly. Thumbnails go first (tiny, so the peeks are never blank
+  // when they reveal), then the full-size renders for crisp paging.
+  useEffect(() => {
+    if (!post) return;
+    const sources = [
+      ...post.images.map((m) => m.posterUrl),
+      ...post.images.map((m) => m.url),
+    ].filter((u): u is string => Boolean(u));
+    const preloaded = sources.map((u) => {
+      const img = new window.Image();
+      img.src = u;
+      return img;
+    });
+    return () => {
+      // Abort any still-in-flight preloads if the post changes quickly.
+      preloaded.forEach((img) => (img.src = ""));
+    };
+  }, [post]);
 
   // On close (only), snap the grid card to whatever media the lightbox is on, so
   // the reverse morph hands off between the *same* picture — the card is otherwise
@@ -237,8 +267,10 @@ export function PostOverlay({
             <motion.div
               key={post.id}
               className="absolute inset-0 z-30"
+              // Group only carries the post-switch focus-pull now; per-slide opacity
+              // (below) drives the entrance so peeks can appear before the morph ends.
               initial={{ opacity: 0, filter: switching ? "blur(12px)" : "blur(0px)" }}
-              animate={{ opacity: phase === "in" ? 0 : 1, filter: "blur(0px)" }}
+              animate={{ opacity: 1, filter: "blur(0px)" }}
               exit={{ opacity: 0, filter: "blur(6px)" }}
               transition={{ opacity: FADE, filter: { duration: 0.34, ease: [0.23, 1, 0.32, 1] } }}
             >
@@ -250,6 +282,15 @@ export function PostOverlay({
                 const x = Math.sign(offset) * frameW * PEEK_OFFSET * (step === 1 ? 1 : 1.92);
                 const scale = isActive ? 1 : PEEK_SCALE;
                 const zIndex = isActive ? 30 : 20 - step;
+                // Active slide stays hidden until the morph hands off (the hero owns
+                // the centre); neighbours reveal on the quick `peeksIn` timer.
+                const slideOpacity = isActive
+                  ? phase === "in"
+                    ? 0
+                    : 1
+                  : switching || !peeksIn
+                    ? 0
+                    : 1;
                 return (
                   <motion.div
                     key={`slide-${i}`}
@@ -263,16 +304,14 @@ export function PostOverlay({
                       if (!isActive) setMediaIndex(i);
                     }}
                     initial={false}
-                    animate={{ x: isActive ? 0 : x, scale }}
-                    transition={{ x: SLIDE, scale: SLIDE }}
+                    animate={{ x: isActive ? 0 : x, scale, opacity: slideOpacity }}
+                    transition={{ x: SLIDE, scale: SLIDE, opacity: FADE }}
                   >
-                    <div className="size-full overflow-hidden rounded-[12px]" style={{ boxShadow: FRAME_SHADOW }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
+                    <div className="relative size-full overflow-hidden rounded-[12px]" style={{ boxShadow: FRAME_SHADOW }}>
+                      <StageImage
                         src={m.url}
+                        poster={m.posterUrl}
                         alt={isActive ? (post.caption ?? "") : ""}
-                        draggable={false}
-                        className="size-full select-none object-cover"
                       />
                     </div>
                   </motion.div>
@@ -303,12 +342,10 @@ export function PostOverlay({
               className="relative size-full overflow-hidden rounded-[12px]"
               style={{ boxShadow: FRAME_SHADOW }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <StageImage
+                key={media[mediaIndex]?.url}
                 src={media[mediaIndex]?.url}
-                alt=""
-                draggable={false}
-                className="absolute inset-0 size-full select-none object-cover"
+                poster={media[mediaIndex]?.posterUrl}
               />
             </motion.div>
           </motion.div>
@@ -390,6 +427,53 @@ export function PostOverlay({
 
   if (typeof document === "undefined") return null;
   return createPortal(overlay, document.body);
+}
+
+/**
+ * Progressive image for the lightbox: paints the (already grid-cached) thumbnail
+ * instantly, then fades the full-quality render in on top the moment it loads —
+ * so opening never shows a blank frame while the large image streams in, yet it
+ * still settles at full quality. If the full image is already cached it appears
+ * immediately (the `complete` check covers browsers that skip a fresh onLoad).
+ */
+function StageImage({
+  src,
+  poster,
+  alt = "",
+}: {
+  src?: string;
+  poster?: string | null;
+  alt?: string;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const ref = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    if (ref.current?.complete) setLoaded(true);
+  }, []);
+  return (
+    <>
+      {poster ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={poster}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="absolute inset-0 size-full select-none object-cover"
+        />
+      ) : null}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={ref}
+        src={src}
+        alt={alt}
+        draggable={false}
+        onLoad={() => setLoaded(true)}
+        style={{ opacity: loaded ? 1 : 0 }}
+        className="absolute inset-0 size-full select-none object-cover transition-opacity duration-300 ease-out"
+      />
+    </>
+  );
 }
 
 function ControlButton({
