@@ -1,0 +1,48 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="150" height="180.224" viewBox="0 0 150 180.224" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Frame 2147239883" transform="matrix(1 0 0 -1 0 180.224)">
+<path id="Rectangle 34624508" d="M83.2013 132.838C83.061 121.334 92.2706 111.892 103.775 111.747L135.56 111.344C139.858 111.29 143.651 108.52 145.01 104.442L148.763 96.8731L149.998 111.254V180.218H74.4386L67.0532 177.601C76.7332 175.55 83.6173 166.948 83.4967 157.054L83.2013 132.838Z" fill="#EFEFF1"/>
+<g id="Mask Group">
+<mask id="mask0_0_4" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="-86" y="-1" width="233" height="178">
+<path id="Rectangle 70" d="M145.772 21.1885L145.772 93.1055C145.772 104.969 141.051 116.346 132.65 124.724L94.8878 162.385C86.5168 170.733 75.1769 175.421 63.3546 175.421L-63.8798 175.421C-75.1658 175.421 -84.3151 166.272 -84.3153 154.986L-84.3153 21.1885C-84.3153 9.90239 -75.1659 0.752985 -63.8798 0.752985L125.336 0.752993C136.622 0.752994 145.772 9.9024 145.772 21.1885Z" fill="url(#paint0_radial_0_4)" stroke="url(#paint1_radial_0_4)" stroke-width="1.51373"/>
+</mask>
+<g mask="url(#mask0_0_4)">
+<g id="Vector 91" opacity="0.5" filter="url(#filter0_f_0_4)">
+<path d="M82.1316 111.65L142.69 123.435L94.2433 173.52L82.1316 111.65Z" fill="black" fill-opacity="0.4"/>
+<path d="M82.1316 111.65L142.69 123.435L94.2433 173.52L82.1316 111.65Z" stroke="url(#paint2_radial_0_4)" stroke-width="1.51373"/>
+</g>
+<g id="Vector 90">
+<path d="M104.025 111.361L149.832 111.361L82.8328 179.005L82.8328 132.553C82.8328 120.849 92.3209 111.361 104.025 111.361Z" fill="url(#paint3_radial_0_4)"/>
+<path d="M150.37 111.893L83.3706 179.538L82.0757 180.845L82.0757 132.553C82.0757 120.431 91.9028 110.604 104.025 110.604L151.646 110.604L150.37 111.893Z" stroke="url(#paint4_radial_0_4)" stroke-opacity="0.4" stroke-width="1.51373"/>
+</g>
+</g>
+</g>
+</g>
+<defs>
+<filter id="filter0_f_0_4" x="20.6236" y="50.1429" width="184.13" height="185.495" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feGaussianBlur stdDeviation="30.2746" result="effect1_foregroundBlur_0_4"/>
+</filter>
+<radialGradient id="paint0_radial_0_4" cx="0" cy="0" r="1" gradientTransform="matrix(-226.283 -169.111 129.337 -172.137 144.461 172.348)" gradientUnits="userSpaceOnUse">
+<stop stop-color="#EFEFEF"/>
+<stop offset="1" stop-color="#FDFDFD"/>
+</radialGradient>
+<radialGradient id="paint1_radial_0_4" cx="0" cy="0" r="1" gradientTransform="matrix(188.712 129.26 -174.098 143.529 -122.243 -27.2319)" gradientUnits="userSpaceOnUse">
+<stop stop-opacity="0.15"/>
+<stop offset="1" stop-opacity="0"/>
+</radialGradient>
+<radialGradient id="paint2_radial_0_4" cx="0" cy="0" r="1" gradientTransform="matrix(49.3443 45.3921 -45.5231 50.4032 72.4122 102.088)" gradientUnits="userSpaceOnUse">
+<stop stop-opacity="0.15"/>
+<stop offset="1" stop-opacity="0"/>
+</radialGradient>
+<radialGradient id="paint3_radial_0_4" cx="0" cy="0" r="1" gradientTransform="matrix(54.2372 51.9666 -162.373 168.561 82.0056 111.66)" gradientUnits="userSpaceOnUse">
+<stop stop-color="white"/>
+<stop offset="0.5" stop-color="#F9FBFF"/>
+<stop offset="0.631395" stop-color="white"/>
+</radialGradient>
+<radialGradient id="paint4_radial_0_4" cx="0" cy="0" r="1" gradientTransform="matrix(54.5916 49.6287 -50.3641 55.1075 72.0799 100.907)" gradientUnits="userSpaceOnUse">
+<stop stop-opacity="0.15"/>
+<stop offset="1" stop-opacity="0"/>
+</radialGradient>
+</defs>
+</svg>

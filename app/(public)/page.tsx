@@ -5,13 +5,16 @@ import { getRecentPosts } from "@/features/posts/queries";
 import type { PostListItem } from "@/features/posts/queries";
 import { ExploreFeed, type PostsResult } from "@/features/posts/explore-feed";
 import { SetupRequired } from "@/components/setup-required";
+import { PaperCurl } from "@/components/paper-curl";
 
 export default function HomePage() {
   return (
     <div className="flex w-full flex-col items-center bg-[#f7f7f7] px-7">
       <div className="flex w-full flex-1 flex-col items-start px-4 sm:px-10 lg:px-18">
         {/* Hero heading */}
-        <div className="flex w-full items-center justify-center border-r border-b border-l border-[#e3e5e8] py-12 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] [container-type:inline-size] sm:py-18 lg:py-24">
+        <div className="relative flex w-full items-center justify-center border-r border-b border-l border-[#e3e5e8] py-12 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] [container-type:inline-size] sm:py-18 lg:py-24">
+          {/* Decorative paper-curl at the sheet's top-right corner */}
+          <PaperCurl />
           {/* Size scales to the bordered box's own width (container query units),
               so the single line can never overflow the left/right borders. */}
           <h1
