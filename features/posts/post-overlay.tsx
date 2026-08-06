@@ -12,7 +12,7 @@ import type { PostListItem } from "./queries";
  * shares one feel. Springs for anything spatial, quick eases for opacity.
  */
 const OPEN_MORPH = { type: "spring", duration: 0.5, bounce: 0.12 } as const;
-const SLIDE = { type: "spring", duration: 0.5, bounce: 0.16 } as const;
+const SLIDE = { type: "spring", duration: 0.42, bounce: 0.12 } as const;
 const FADE = { duration: 0.2, ease: [0.23, 1, 0.32, 1] } as const;
 const DRAWER = { duration: 0.4, ease: [0.32, 0.72, 0, 1] } as const;
 
@@ -58,6 +58,12 @@ export function PostOverlay({
   // Reveal the neighbour peeks shortly after open, independently of the (slower)
   // entrance morph, so the other media show up quickly instead of waiting it out.
   const [peeksIn, setPeeksIn] = useState(false);
+  // When media changes faster than the slide can settle — holding the arrow key or
+  // spamming it — snap instantly instead of animating (a held key that animates
+  // just looks laggy). Falls back to the smooth slide for deliberate single steps.
+  const [fastNav, setFastNav] = useState(false);
+  const lastNavRef = useRef(0);
+  const navResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [stage, setStage] = useState(() => ({
     w: typeof window !== "undefined" ? Math.max(320, window.innerWidth - 340) : 1200,
     h: typeof window !== "undefined" ? window.innerHeight : 800,
@@ -152,6 +158,13 @@ export function PostOverlay({
     (d: number) => {
       const nextI = mediaIndex + d;
       if (nextI < 0 || nextI >= mediaCount) return;
+      // Steps closer together than ~90ms (a held key repeats every ~30–50ms) count
+      // as rapid nav → snap. A short timer restores the slide once the burst ends.
+      const now = performance.now();
+      setFastNav(now - lastNavRef.current < 90);
+      lastNavRef.current = now;
+      if (navResetRef.current) clearTimeout(navResetRef.current);
+      navResetRef.current = setTimeout(() => setFastNav(false), 110);
       setMediaIndex(nextI);
     },
     [mediaIndex, mediaCount],
@@ -186,6 +199,7 @@ export function PostOverlay({
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
+      if (navResetRef.current) clearTimeout(navResetRef.current);
       document.body.style.overflow = prevOverflow;
     };
   }, [goMedia, goPost, requestClose, mediaIndex, mediaCount]);
@@ -305,7 +319,7 @@ export function PostOverlay({
                     }}
                     initial={false}
                     animate={{ x: isActive ? 0 : x, scale, opacity: slideOpacity }}
-                    transition={{ x: SLIDE, scale: SLIDE, opacity: FADE }}
+                    transition={fastNav ? { duration: 0 } : { x: SLIDE, scale: SLIDE, opacity: FADE }}
                   >
                     <div className="relative size-full overflow-hidden rounded-[12px]" style={{ boxShadow: FRAME_SHADOW }}>
                       <StageImage
