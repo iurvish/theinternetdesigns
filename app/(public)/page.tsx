@@ -6,6 +6,7 @@ import type { PostListItem } from "@/features/posts/queries";
 import { ExploreFeed, type PostsResult } from "@/features/posts/explore-feed";
 import { SetupRequired } from "@/components/setup-required";
 import { PaperCurl } from "@/components/paper-curl";
+import { getFeedAutoplay } from "@/lib/settings";
 
 export default function HomePage() {
   return (
@@ -41,7 +42,7 @@ export default function HomePage() {
             <span
               aria-hidden="true"
               className="col-start-1 row-start-1"
-              style={{ color: "#fcfcfc", WebkitTextStroke: "0.5px #D1D1D1B3" }}
+              style={{ color: "#fcfcfc", WebkitTextStroke: "1.2px #D1D1D1B3" }}
             >
               the internet designs
             </span>
@@ -82,6 +83,8 @@ async function HomeShell() {
     );
   }
 
+  const feedAutoplay = await getFeedAutoplay();
+
   const postsPromise: Promise<PostsResult> = getRecentPosts({ limit: 60 })
     .then((posts) => ({ posts, error: null }))
     .catch((err) => ({
@@ -89,5 +92,11 @@ async function HomeShell() {
       error: err instanceof Error ? err.message : String(err),
     }));
 
-  return <ExploreFeed categories={cats} postsPromise={postsPromise} />;
+  return (
+    <ExploreFeed
+      categories={cats}
+      postsPromise={postsPromise}
+      feedAutoplay={feedAutoplay}
+    />
+  );
 }

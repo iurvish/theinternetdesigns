@@ -146,6 +146,18 @@ export const postCategories = pgTable(
   ],
 );
 
+/**
+ * Global key/value settings, edited from the admin panel. Currently holds the
+ * "feed autoplay" flag; kept generic so future toggles reuse the same table.
+ */
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Setting = typeof settings.$inferSelect;
+
 export type Creator = typeof creators.$inferSelect;
 export type NewCreator = typeof creators.$inferInsert;
 export type Category = typeof categories.$inferSelect;
