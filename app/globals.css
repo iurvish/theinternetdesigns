@@ -129,6 +129,8 @@
   }
   html {
     @apply font-sans;
+    /* Site-wide Inter with a -1.5% tracking for a tighter, modern rhythm. */
+    letter-spacing: -0.015em;
   }
 }
 

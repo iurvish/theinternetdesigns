@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Pipette, Plus, X } from "lucide-react";
+import { Pipette, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const MAX_COLORS = 2;
@@ -11,6 +10,10 @@ const CRISP =
   "shadow-[0px_0px_0px_1px_rgba(232,232,232,0.6),0px_3px_9px_0px_rgba(0,0,0,0.02),0px_1px_1px_0px_rgba(0,0,0,0.04)]";
 const POPOVER_SHADOW =
   "shadow-[0px_0px_0px_1px_rgba(0,0,0,0.06),0px_2px_6px_-2px_rgba(0,0,0,0.08),0px_14px_36px_-10px_rgba(0,0,0,0.22)]";
+// Selected-colour "bead": an outer drop shadow lifts it off the card, and paired
+// inset highlight/shadow give it a physical, pressed-in look (per the Figma).
+const BEAD_SHADOW =
+  "0 1px 2px rgba(0,0,0,0.18), 0 3px 8px -2px rgba(0,0,0,0.16), inset 0 1px 1.5px rgba(255,255,255,0.45), inset 0 -2px 3px rgba(0,0,0,0.22)";
 
 /* ── colour math ────────────────────────────────────────────────────────── */
 type HSV = { h: number; s: number; v: number };
@@ -33,9 +36,7 @@ function hsvToHex(hsv: HSV) {
   const { r, g, b } = hsvToRgb(hsv);
   return (
     "#" +
-    [r, g, b]
-      .map((v) => Math.round(v).toString(16).padStart(2, "0"))
-      .join("")
+    [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")
   );
 }
 
@@ -72,20 +73,38 @@ function ColorDotsIcon({ className }: { className?: string }) {
 }
 
 /* ── the control ────────────────────────────────────────────────────────── */
-export function ColorSearch() {
-  const router = useRouter();
+export function ColorSearch({
+  selected,
+  onSelected,
+}: {
+  /** Committed colours driving the feed (controlled by the parent). */
+  selected: string[];
+  onSelected: (colors: string[]) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [hsv, setHsv] = useState<HSV>({ h: 145, s: 0.55, v: 0.87 });
   const [hexInput, setHexInput] = useState(() => hsvToHex({ h: 145, s: 0.55, v: 0.87 }));
-  const [selected, setSelected] = useState<string[]>([]);
+  // Draft beads live only inside the popover — picking a colour adds it here for
+  // preview, but nothing filters the feed until the Search button is clicked.
+  const [draft, setDraft] = useState<string[]>(selected);
+  const [editIdx, setEditIdx] = useState(selected.length);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const current = hsvToHex(hsv);
+  const hasSelection = selected.length > 0;
 
-  const applyHsv = useCallback((next: HSV) => {
-    setHsv(next);
-    setHexInput(hsvToHex(next));
+  // Synchronous mirrors of the draft + active slot, so a fast SV drag can't race
+  // itself into appending duplicate beads.
+  const draftRef = useRef<string[]>(selected);
+  const editIdxRef = useRef(selected.length);
+  const setEdit = useCallback((i: number) => {
+    editIdxRef.current = i;
+    setEditIdx(i);
+  }, []);
+  const writeDraft = useCallback((arr: string[]) => {
+    draftRef.current = arr;
+    setDraft(arr);
   }, []);
 
   // Close on outside click.
@@ -98,18 +117,96 @@ export function ColorSearch() {
     return () => window.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const addColor = () => {
-    setSelected((s) =>
-      s.includes(current) || s.length >= MAX_COLORS ? s : [...s, current],
-    );
-  };
-  const removeColor = (c: string) => setSelected((s) => s.filter((x) => x !== c));
+  /** Write the picked colour into the active draft slot — appends on the first
+   *  change (or after +), otherwise updates the slot in place. Preview only. */
+  const commitColor = useCallback(
+    (hex: string) => {
+      const arr = [...draftRef.current];
+      let idx = editIdxRef.current;
+      if (idx < arr.length) arr[idx] = hex;
+      else if (arr.length < MAX_COLORS) {
+        arr.push(hex);
+        idx = arr.length - 1;
+      } else {
+        idx = arr.length - 1;
+        arr[idx] = hex;
+      }
+      setEdit(idx);
+      writeDraft(arr);
+    },
+    [setEdit, writeDraft],
+  );
+
+  const applyHsv = useCallback(
+    (next: HSV) => {
+      setHsv(next);
+      const hex = hsvToHex(next);
+      setHexInput(hex);
+      commitColor(hex);
+    },
+    [commitColor],
+  );
 
   const onHexChange = (raw: string) => {
     setHexInput(raw);
     const parsed = hexToHsv(raw);
-    if (parsed) setHsv(parsed);
+    if (parsed) {
+      setHsv(parsed);
+      commitColor(hsvToHex(parsed));
+    }
   };
+
+  /** + seeds a fresh slot with the current colour (a new bead you then fine-tune). */
+  const addSlot = () => {
+    if (draftRef.current.length >= MAX_COLORS) return;
+    setEdit(draftRef.current.length);
+    commitColor(current);
+  };
+  const removeColor = (idx: number) => {
+    const arr = draftRef.current.filter((_, i) => i !== idx);
+    writeDraft(arr);
+    setEdit(arr.length);
+  };
+  /** Tap a bead to bring it back onto the picker and keep editing it. */
+  const editBead = (idx: number) => {
+    setEdit(idx);
+    const parsed = hexToHsv(draft[idx]);
+    if (parsed) {
+      setHsv(parsed);
+      setHexInput(draft[idx]);
+    }
+  };
+  /** Clear from the trigger pill — an explicit action, so this does drop the feed. */
+  const clearAll = () => {
+    writeDraft([]);
+    setEdit(0);
+    onSelected([]);
+  };
+  const openPicker = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    // Seed the draft (and picker) from what's currently committed.
+    writeDraft(selected);
+    setEdit(selected.length);
+    if (selected.length) {
+      const parsed = hexToHsv(selected[selected.length - 1]);
+      if (parsed) {
+        setHsv(parsed);
+        setHexInput(selected[selected.length - 1]);
+      }
+    }
+    setOpen(true);
+    setHovered(false);
+  };
+  /** The one place the feed actually updates. */
+  const onSearch = () => {
+    const arr = draftRef.current.length ? draftRef.current : [current];
+    onSelected(arr);
+    setOpen(false);
+  };
+  const draftCount = draft.length || 1;
 
   const useEyedropper = async () => {
     const EyeDropper = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
@@ -122,51 +219,59 @@ export function ColorSearch() {
     }
   };
 
-  const hasEyedropper =
-    typeof window !== "undefined" && "EyeDropper" in window;
-
-  const runSearch = () => {
-    if (selected.length === 0) return;
-    setOpen(false);
-    const param = selected.map((c) => c.replace("#", "")).join(",");
-    router.push(`/search?colors=${param}`);
-  };
+  const hasEyedropper = typeof window !== "undefined" && "EyeDropper" in window;
 
   return (
     <div ref={rootRef} className="relative">
-      {/* Trigger — colour-dots only, or the selected colours */}
-      <button
-        type="button"
-        onClick={() => {
-          setOpen((o) => !o);
-          setHovered(false);
-        }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        aria-label="Search by colour"
+      {/* Trigger — dots glyph (or committed swatches) + a `+` hint so it reads as
+          "pick colours", plus a quick clear when a search is active. */}
+      <div
         className={cn(
-          "flex items-center gap-1.5 rounded-xl bg-white px-2.5 py-2.5 transition-transform active:scale-[0.97] motion-reduce:active:scale-100",
+          "group flex items-center gap-1 rounded-xl bg-white py-2 transition-transform",
+          hasSelection ? "pl-2.5 pr-1.5" : "px-2.5",
           CRISP,
         )}
       >
-        {selected.length > 0 ? (
-          <span className="flex items-center">
-            {selected.slice(0, 4).map((c, i) => (
-              <span
-                key={c}
-                className="size-[18px] rounded-full ring-2 ring-white"
-                style={{ backgroundColor: c, marginLeft: i === 0 ? 0 : -6 }}
-              />
-            ))}
-          </span>
-        ) : (
-          <ColorDotsIcon className="size-[18px]" />
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={openPicker}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          aria-label="Search by colour"
+          className="flex items-center gap-1.5 active:scale-[0.97] motion-reduce:active:scale-100"
+        >
+          {hasSelection ? (
+            <span className="flex items-center">
+              {selected.map((c, i) => (
+                <span
+                  key={c}
+                  className="size-[18px] rounded-full ring-2 ring-white"
+                  style={{ backgroundColor: c, marginLeft: i === 0 ? 0 : -6 }}
+                />
+              ))}
+            </span>
+          ) : (
+            <ColorDotsIcon className="size-[18px]" />
+          )}
+          {selected.length < MAX_COLORS ? (
+            <Plus className="size-3.5 text-[#adadb0]" strokeWidth={2.4} aria-hidden />
+          ) : null}
+        </button>
+        {hasSelection ? (
+          <button
+            type="button"
+            onClick={clearAll}
+            aria-label="Clear colour search"
+            className="flex size-5 items-center justify-center rounded-full text-[#9a9a9d] opacity-0 transition-[opacity,colors] hover:bg-[#f0f0f1] hover:text-[#1f2123] focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <X className="size-3.5" strokeWidth={2.4} />
+          </button>
+        ) : null}
+      </div>
 
-      {/* Hover tooltip (only while closed) */}
+      {/* Hover tooltip (only while closed and nothing selected) */}
       <AnimatePresence>
-        {hovered && !open ? (
+        {hovered && !open && !hasSelection ? (
           <motion.div
             initial={{ opacity: 0, y: -4, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -190,26 +295,39 @@ export function ColorSearch() {
             exit={{ opacity: 0, scale: 0.96, y: -4 }}
             transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top left" }}
+            // Plain rounded rectangle — no bottom sweep.
             className={cn(
-              "absolute left-0 top-full z-50 mt-2 w-[248px] rounded-2xl bg-white p-3",
+              "absolute left-0 top-full z-50 mt-2 w-[256px] rounded-[24px] bg-white px-4 pb-4 pt-4",
               POPOVER_SHADOW,
             )}
           >
-            <Wheel hsv={hsv} onChange={applyHsv} />
-            <ValueSlider hsv={hsv} onChange={applyHsv} />
+            {/* Micro-label sets the hierarchy (uppercase, tracked out per the
+                typography guidance) with the live hex on the right. */}
+            <div className="mb-3 flex items-baseline justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-[#9a9a9d]">
+                Colour
+              </span>
+              <span className="font-mono text-[11px] tabular-nums tracking-tight text-[#adadb0]">
+                {current}
+              </span>
+            </div>
+
+            {/* Square saturation/value field + straight hue bar (no circle, no curve). */}
+            <SvSquare hsv={hsv} onChange={applyHsv} />
+            <HueSlider hsv={hsv} onChange={applyHsv} />
 
             {/* hex + eyedropper */}
-            <div className="mt-3 flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-[#e8e8e8] px-2.5 py-2">
+            <div className="mt-4 flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 rounded-xl border border-[#e8e8e8] px-2.5 py-2 transition-colors focus-within:border-[#c7c7ca]">
                 <span
-                  className="size-4 shrink-0 rounded-full ring-1 ring-black/10"
-                  style={{ backgroundColor: current }}
+                  className="size-4 shrink-0 rounded-[5px]"
+                  style={{ backgroundColor: current, boxShadow: BEAD_SHADOW }}
                 />
                 <input
                   value={hexInput}
                   onChange={(e) => onHexChange(e.target.value)}
                   spellCheck={false}
-                  className="w-full bg-transparent text-sm tracking-tight text-[#1f2123] outline-none placeholder:text-[#adadb0]"
+                  className="w-full bg-transparent font-mono text-sm tracking-tight text-[#1f2123] outline-none placeholder:text-[#adadb0]"
                   placeholder="#000000"
                   aria-label="Hex colour"
                 />
@@ -219,52 +337,59 @@ export function ColorSearch() {
                   type="button"
                   onClick={useEyedropper}
                   aria-label="Pick from screen"
-                  className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#e8e8e8] text-[#5c5c5e] transition-colors hover:bg-[#f4f4f5]"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#e8e8e8] text-[#5c5c5e] transition-[colors,transform] hover:bg-[#f4f4f5] active:scale-[0.96] motion-reduce:active:scale-100"
                 >
                   <Pipette className="size-4" />
                 </button>
               ) : null}
             </div>
 
-            {/* selected colours + add */}
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              {selected.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => removeColor(c)}
-                  aria-label={`Remove ${c}`}
-                  className="group relative size-7 rounded-full ring-1 ring-black/10"
-                  style={{ backgroundColor: c }}
-                >
-                  <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100">
-                    <X className="size-3.5 text-white" strokeWidth={2.5} />
-                  </span>
-                </button>
+            {/* Draft beads — the picked colour previews here (feed still unchanged).
+                Tap a bead to keep editing it; the badge removes it; `+` adds a 2nd. */}
+            <div className="mt-4 flex items-center gap-2.5">
+              {draft.map((c, i) => (
+                <div key={`${c}-${i}`} className="group relative">
+                  <button
+                    type="button"
+                    onClick={() => editBead(i)}
+                    aria-label={`Edit ${c}`}
+                    className="size-9 rounded-[10px] transition-transform active:scale-[0.96] motion-reduce:active:scale-100"
+                    style={{
+                      backgroundColor: c,
+                      boxShadow: BEAD_SHADOW,
+                      outline: editIdx === i ? "2px solid #1f2123" : "none",
+                      outlineOffset: 2,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeColor(i)}
+                    aria-label={`Remove ${c}`}
+                    className="absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full bg-[#1f2123] text-white opacity-0 shadow-[0_1px_3px_rgba(0,0,0,0.35)] transition group-hover:opacity-100"
+                  >
+                    <X className="size-2.5" strokeWidth={3} />
+                  </button>
+                </div>
               ))}
-              {selected.length < MAX_COLORS ? (
+              {draft.length < MAX_COLORS ? (
                 <button
                   type="button"
-                  onClick={addColor}
-                  aria-label="Add this colour"
-                  className="flex size-7 items-center justify-center rounded-full border border-dashed border-[#cfcfd2] text-[#9a9a9d] transition-colors hover:border-[#1f2123] hover:text-[#1f2123]"
+                  onClick={addSlot}
+                  aria-label="Add another colour"
+                  className="flex size-9 items-center justify-center rounded-[10px] border-2 border-dashed border-[#d2d2d5] text-[#9a9a9d] transition-colors hover:border-[#1f2123] hover:text-[#1f2123]"
                 >
-                  <Plus className="size-4" strokeWidth={2.2} />
+                  <Plus className="size-4" strokeWidth={2.4} />
                 </button>
               ) : null}
             </div>
 
-            {/* search */}
+            {/* The only control that runs the search + closes. */}
             <button
               type="button"
-              onClick={runSearch}
-              disabled={selected.length === 0}
-              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#1f2123] py-2.5 text-sm font-medium tracking-tight text-white transition-colors hover:bg-[#2c2f31] disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={onSearch}
+              className="mt-4 flex w-full items-center justify-center rounded-xl bg-[#1f2123] py-2.5 text-sm font-medium tracking-tight text-white transition-[colors,transform] hover:bg-[#2c2f31] active:scale-[0.98] motion-reduce:active:scale-100"
             >
-              <Check className="size-4" strokeWidth={2.4} />
-              {selected.length > 0
-                ? `Search ${selected.length} colour${selected.length > 1 ? "s" : ""}`
-                : "Pick a colour"}
+              {`Search ${draftCount} colour${draftCount > 1 ? "s" : ""}`}
             </button>
           </motion.div>
         ) : null}
@@ -273,8 +398,9 @@ export function ColorSearch() {
   );
 }
 
-/* ── hue/saturation wheel ───────────────────────────────────────────────── */
-function Wheel({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
+/* ── saturation / value square ──────────────────────────────────────────── */
+// x = saturation (0→1 left→right), y = value (1→0 top→bottom), hue = background.
+function SvSquare({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   const pick = useCallback(
@@ -282,32 +408,21 @@ function Wheel({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
       const el = ref.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const dx = clientX - cx;
-      const dy = clientY - cy;
-      const maxR = r.width / 2;
-      const dist = Math.min(Math.hypot(dx, dy), maxR);
-      // hue = clockwise angle from top; sat = radius
-      let h = (Math.atan2(dx, -dy) * 180) / Math.PI;
-      if (h < 0) h += 360;
-      onChange({ h, s: maxR === 0 ? 0 : dist / maxR, v: hsv.v });
+      const s = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+      const v = Math.min(1, Math.max(0, 1 - (clientY - r.top) / r.height));
+      onChange({ h: hsv.h, s, v });
     },
-    [hsv.v, onChange],
+    [hsv.h, onChange],
   );
-
-  // Positioned in percentages so it's correct at any rendered size (no measuring).
-  const rad = (hsv.h * Math.PI) / 180;
-  const knob = {
-    left: 50 + Math.sin(rad) * hsv.s * 50,
-    top: 50 - Math.cos(rad) * hsv.s * 50,
-  };
 
   return (
     <div
       ref={ref}
       role="slider"
-      aria-label="Hue and saturation"
+      aria-label="Saturation and brightness"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(hsv.s * 100)}
       tabIndex={0}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -316,41 +431,44 @@ function Wheel({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
       onPointerMove={(e) => {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) pick(e.clientX, e.clientY);
       }}
-      className="relative mx-auto aspect-square w-full cursor-crosshair touch-none select-none rounded-full ring-1 ring-black/5"
+      className="relative aspect-[4/3] w-full cursor-crosshair touch-none select-none overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)]"
       style={{
-        background:
-          "radial-gradient(circle at 50% 50%, #fff 0%, rgba(255,255,255,0) 70%), conic-gradient(from 0deg, hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%), hsl(180 100% 50%), hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%))",
+        backgroundColor: `hsl(${hsv.h} 100% 50%)`,
+        backgroundImage:
+          "linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)",
       }}
     >
       <span
-        className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25)]"
-        style={{ left: `${knob.left}%`, top: `${knob.top}%`, backgroundColor: hsvToHex(hsv) }}
+        className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white shadow-[0_0_0_1px_rgba(0,0,0,0.2),0_1px_4px_-1px_rgba(0,0,0,0.4)]"
+        style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, backgroundColor: hsvToHex(hsv) }}
       />
     </div>
   );
 }
 
-/* ── brightness (value) slider ──────────────────────────────────────────── */
-function ValueSlider({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
+/* ── straight hue slider ─────────────────────────────────────────────────── */
+function HueSlider({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  const full = hsvToHex({ h: hsv.h, s: hsv.s, v: 1 });
 
   const pick = useCallback(
     (clientX: number) => {
       const el = ref.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const t = Math.min(Math.max((clientX - r.left) / r.width, 0), 1);
-      onChange({ h: hsv.h, s: hsv.s, v: t });
+      const t = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+      onChange({ h: t * 360, s: hsv.s, v: hsv.v });
     },
-    [hsv.h, hsv.s, onChange],
+    [hsv.s, hsv.v, onChange],
   );
 
   return (
     <div
       ref={ref}
       role="slider"
-      aria-label="Brightness"
+      aria-label="Hue"
+      aria-valuemin={0}
+      aria-valuemax={360}
+      aria-valuenow={Math.round(hsv.h)}
       tabIndex={0}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -359,12 +477,15 @@ function ValueSlider({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }
       onPointerMove={(e) => {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) pick(e.clientX);
       }}
-      className="relative mt-3 h-3.5 w-full cursor-pointer touch-none select-none rounded-full ring-1 ring-inset ring-black/10"
-      style={{ background: `linear-gradient(to right, #000, ${full})` }}
+      className="relative mt-3 h-3.5 w-full cursor-pointer touch-none select-none rounded-full shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)]"
+      style={{
+        backgroundImage:
+          "linear-gradient(to right, hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%), hsl(180 100% 50%), hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%))",
+      }}
     >
       <span
-        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25)]"
-        style={{ left: `${hsv.v * 100}%`, backgroundColor: hsvToHex(hsv) }}
+        className="pointer-events-none absolute top-1/2 size-[18px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_4px_-1px_rgba(0,0,0,0.4)]"
+        style={{ left: `${(hsv.h / 360) * 100}%`, backgroundColor: `hsl(${hsv.h} 100% 50%)` }}
       />
     </div>
   );

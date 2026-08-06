@@ -17,14 +17,40 @@ export default function HomePage() {
           <PaperCurl />
           {/* Size scales to the bordered box's own width (container query units),
               so the single line can never overflow the left/right borders. */}
+          {/*
+            Embossed near-white wordmark (matching the Paper design). It is drawn
+            as two stacked copies of the same text:
+              • Bottom layer carries the light -webkit-text-stroke that gives the
+                letters their edge on the pale background.
+              • Top layer is an identical SOLID fill with no stroke.
+            Why two layers: letter-spacing is negative, so adjacent glyphs overlap.
+            -webkit-text-stroke outlines every glyph fully, so on its own it draws
+            the buried edges of overlapped letters as stray boxes/lines. The opaque
+            top fill covers those interior marks, leaving only the clean outer edge.
+            The soft emboss shadow is applied to the composited result via filter.
+          */}
           <h1
-            className="whitespace-nowrap bg-gradient-to-t from-[#fafafa] to-white bg-clip-text text-center text-[clamp(1.75rem,8cqw,8rem)] font-bold capitalize leading-none tracking-tighter text-transparent [font-family:var(--font-inter)]"
+            className="relative grid whitespace-nowrap text-center text-[clamp(1.75rem,8cqw,8rem)] font-bold capitalize leading-none"
             style={{
-              textShadow:
-                "0px 1px 1px rgba(0,0,0,0.15), 0px 1px 1px rgba(10,10,10,0.06), 0px 3px 3px rgba(0,0,0,0.05)",
+              fontFamily: "var(--font-sans)",
+              letterSpacing: "-0.04em",
+              filter:
+                "drop-shadow(0px 3px 1.5px #0000000D) drop-shadow(0px 1px 0.5px #0000000F) drop-shadow(0px 1px 0.5px #00000026)",
             }}
           >
-            the internet designs
+            <span
+              aria-hidden="true"
+              className="col-start-1 row-start-1"
+              style={{ color: "#fcfcfc", WebkitTextStroke: "0.5px #D1D1D1B3" }}
+            >
+              the internet designs
+            </span>
+            <span
+              className="col-start-1 row-start-1"
+              style={{ color: "#fcfcfc" }}
+            >
+              the internet designs
+            </span>
           </h1>
         </div>
 

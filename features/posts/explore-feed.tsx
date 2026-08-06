@@ -94,30 +94,34 @@ function FeedBody({
 }) {
   const { posts, error } = use(postsPromise);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
-  // Colour-matched results, fetched in place when colours are selected.
-  const [colorPosts, setColorPosts] = useState<PostListItem[] | null>(null);
-  const [colorLoading, setColorLoading] = useState(false);
+  // Colour-matched results fetched in place. Stored tagged with the colour key so
+  // we can tell fresh results from a previous search's (avoids showing stale posts
+  // during a re-fetch) and only ever setState inside the async callback.
   const colorKey = colors.join(",");
+  const [colorResult, setColorResult] =
+    useState<{ key: string; posts: PostListItem[] } | null>(null);
 
   useEffect(() => {
-    if (colors.length === 0) {
-      setColorPosts(null);
-      setColorLoading(false);
-      return;
-    }
+    if (colors.length === 0) return;
     let cancelled = false;
-    setColorLoading(true);
+    const key = colorKey;
+    // The search is explicit (the popover's Search button commits the colours),
+    // so this fires once per committed set — no debounce needed.
     searchByColorsAction(colors).then((res) => {
-      if (cancelled) return;
-      setColorPosts(res);
-      setColorLoading(false);
+      if (!cancelled) setColorResult({ key, posts: res });
     });
     return () => {
       cancelled = true;
     };
-    // colorKey captures the colour set; `colors` identity changes each render.
+    // colorKey identifies the colour set; `colors` identity changes each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorKey]);
+
+  const colorActive = colors.length > 0;
+  const colorReady = colorActive && colorResult?.key === colorKey;
+  const colorLoading = colorActive && !colorReady;
+  const colorPosts = colorReady ? colorResult!.posts : null;
+
   // Single source of truth for which media index each post is showing. Shared by
   // the grid cards (hover paging) and the lightbox, so the shared-element morph
   // always hands off between the *same* image — no content jump on open/close —
@@ -127,7 +131,6 @@ function FeedBody({
     setMediaByPost((m) => (m[postId] === idx ? m : { ...m, [postId]: idx }));
   }, []);
 
-  const colorActive = colors.length > 0;
   const visible = useMemo(() => {
     // Colour search replaces the feed with its (server-ranked) results.
     if (colorActive) return colorPosts ?? [];
