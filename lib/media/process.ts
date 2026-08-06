@@ -2,6 +2,7 @@ import "server-only";
 import sharp from "sharp";
 import { uploadToR2 } from "@/lib/r2/upload";
 import { extractPalette, type PaletteColor } from "./colors";
+import { firstFrameJpeg } from "./video-frame";
 
 const MAX_WIDTH = 1920;
 const THUMB_WIDTH = 640;
@@ -97,18 +98,30 @@ export async function processVideo(
     contentType: finalType,
   });
 
+  // Prefer the video's real first frame for both the poster still and its colour
+  // palette (we already have the video bytes); fall back to X's supplied poster
+  // thumbnail — which is often a different, unrepresentative frame — if frame
+  // extraction isn't available.
+  let posterBuffer: Buffer | null = await firstFrameJpeg(buffer);
+  if (!posterBuffer && posterSourceUrl) {
+    try {
+      posterBuffer = (await download(posterSourceUrl)).buffer;
+    } catch {
+      posterBuffer = null;
+    }
+  }
+
   let posterUrl: string | null = null;
   let colors: PaletteColor[] = [];
-  if (posterSourceUrl) {
+  if (posterBuffer) {
     try {
-      const poster = await download(posterSourceUrl);
       const [posterAvif, posterColors] = await Promise.all([
-        sharp(poster.buffer, { failOn: "none" })
+        sharp(posterBuffer, { failOn: "none" })
           .rotate()
           .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
           .avif({ quality: 60, effort: 4 })
           .toBuffer(),
-        extractPalette(poster.buffer),
+        extractPalette(posterBuffer),
       ]);
       colors = posterColors;
       posterUrl = await uploadToR2({

@@ -49,7 +49,9 @@ async function HomeShell() {
   } catch (err) {
     return (
       <div className="w-full border-r border-b border-l border-[#e3e5e8] p-3.5 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]">
-        <SetupRequired detail={err instanceof Error ? err.message : String(err)} />
+        <SetupRequired
+          detail={err instanceof Error ? err.message : String(err)}
+        />
       </div>
     );
   }

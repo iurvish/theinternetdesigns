@@ -8,6 +8,7 @@ import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
 import { ColorSearch } from "./color-search";
+import { searchByColorsAction } from "./color-search-action";
 import { SetupRequired } from "@/components/setup-required";
 
 export type PostsResult = { posts: PostListItem[]; error: string | null };
@@ -34,6 +35,9 @@ export function ExploreFeed({
 }) {
   const [active, setActive] = useState<string>("all");
   const [sort, setSort] = useState<SortKey>("recent");
+  // Selected search colours — when non-empty the grid below is replaced (in place,
+  // no navigation) with colour-matched results.
+  const [colors, setColors] = useState<string[]>([]);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -43,7 +47,7 @@ export function ExploreFeed({
       <div className="relative z-30 flex w-full flex-col items-start border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff,0_8px_20px_-12px_rgba(0,0,0,0.12)]">
         <div className="flex w-full items-center gap-4 px-3.5">
           <div className="flex shrink-0 items-center py-3.5">
-            <ColorSearch />
+            <ColorSearch selected={colors} onSelected={setColors} />
           </div>
 
           <Divider />
@@ -60,7 +64,7 @@ export function ExploreFeed({
 
       {/* Only the grid streams in — the bar above stays put */}
       <Suspense fallback={<GridSkeleton />}>
-        <FeedBody postsPromise={postsPromise} active={active} sort={sort} />
+        <FeedBody postsPromise={postsPromise} active={active} sort={sort} colors={colors} />
       </Suspense>
 
       {/* Footer strip */}
@@ -81,13 +85,39 @@ function FeedBody({
   postsPromise,
   active,
   sort,
+  colors,
 }: {
   postsPromise: Promise<PostsResult>;
   active: string;
   sort: SortKey;
+  colors: string[];
 }) {
   const { posts, error } = use(postsPromise);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // Colour-matched results, fetched in place when colours are selected.
+  const [colorPosts, setColorPosts] = useState<PostListItem[] | null>(null);
+  const [colorLoading, setColorLoading] = useState(false);
+  const colorKey = colors.join(",");
+
+  useEffect(() => {
+    if (colors.length === 0) {
+      setColorPosts(null);
+      setColorLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setColorLoading(true);
+    searchByColorsAction(colors).then((res) => {
+      if (cancelled) return;
+      setColorPosts(res);
+      setColorLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // colorKey captures the colour set; `colors` identity changes each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorKey]);
   // Single source of truth for which media index each post is showing. Shared by
   // the grid cards (hover paging) and the lightbox, so the shared-element morph
   // always hands off between the *same* image — no content jump on open/close —
@@ -97,7 +127,10 @@ function FeedBody({
     setMediaByPost((m) => (m[postId] === idx ? m : { ...m, [postId]: idx }));
   }, []);
 
+  const colorActive = colors.length > 0;
   const visible = useMemo(() => {
+    // Colour search replaces the feed with its (server-ranked) results.
+    if (colorActive) return colorPosts ?? [];
     const filtered =
       active === "all"
         ? posts
@@ -107,7 +140,7 @@ function FeedBody({
       const bt = b.publishedAt ? b.publishedAt.getTime() : 0;
       return sort === "recent" ? bt - at : at - bt;
     });
-  }, [posts, active, sort]);
+  }, [colorActive, colorPosts, posts, active, sort]);
 
   if (error) {
     return (
@@ -120,8 +153,20 @@ function FeedBody({
   return (
     <>
       <GridBox>
-        {visible.length === 0 ? (
-          <EmptyState hasPosts={posts.length > 0} />
+        {colorActive && colorPosts === null && colorLoading ? (
+          <div className="w-full columns-2 gap-2.5 md:columns-3">
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
+                  i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-80",
+                )}
+              />
+            ))}
+          </div>
+        ) : visible.length === 0 ? (
+          <EmptyState hasPosts={posts.length > 0} colorSearch={colorActive} />
         ) : (
           <div className="w-full columns-2 gap-2.5 md:columns-3 [column-fill:_balance]">
             {visible.map((p, i) => (
@@ -563,16 +608,28 @@ function NavChevron({
   );
 }
 
-function EmptyState({ hasPosts }: { hasPosts: boolean }) {
+function EmptyState({
+  hasPosts,
+  colorSearch,
+}: {
+  hasPosts: boolean;
+  colorSearch?: boolean;
+}) {
   return (
     <div className="flex w-full flex-col items-center justify-center py-24 text-center">
       <h2 className="text-base font-medium text-[#1f2123]">
-        {hasPosts ? "Nothing in this category yet" : "No inspiration yet"}
+        {colorSearch
+          ? "No designs match those colours"
+          : hasPosts
+            ? "Nothing in this category yet"
+            : "No inspiration yet"}
       </h2>
       <p className="mt-1 max-w-sm text-sm text-[#707275]">
-        {hasPosts
-          ? "Try a different filter to see more designs."
-          : "Add posts from the admin panel to start populating the feed."}
+        {colorSearch
+          ? "Try picking a different or lighter shade."
+          : hasPosts
+            ? "Try a different filter to see more designs."
+            : "Add posts from the admin panel to start populating the feed."}
       </p>
     </div>
   );

@@ -15,6 +15,7 @@ import { parseTweetId } from "@/lib/providers/tweet/parse-url";
 import { fetchTweet, type NormalizedTweet } from "@/lib/providers/tweet/syndication";
 import { processImage, processVideo, uploadAvatar } from "@/lib/media/process";
 import { extractPalette, type PaletteColor } from "@/lib/media/colors";
+import { firstFramePalette } from "@/lib/media/video-frame";
 import { sanitizePalette } from "@/lib/media/color-utils";
 
 export type PreviewResult =
@@ -62,9 +63,13 @@ export async function fetchPreview(input: string): Promise<PreviewResult> {
     const colors = existingFlag
       ? []
       : await Promise.all(
-          tweet.media.map((m) =>
-            paletteFromUrl(m.kind === "image" ? m.url : m.posterUrl),
-          ),
+          tweet.media.map(async (m) => {
+            if (m.kind === "image") return paletteFromUrl(m.url);
+            // Video/gif: pull colours from the clip's real first frame — X's
+            // poster thumbnail is often a different/unrepresentative frame. Fall
+            // back to that poster if frame decoding isn't available.
+            return (await firstFramePalette(m.url)) ?? paletteFromUrl(m.posterUrl);
+          }),
         );
     return { ok: true, tweet, existing: existingFlag, colors };
   } catch (err) {

@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // ffmpeg-static ships a native binary we spawn at ingest time — keep it out of
+  // the bundle so its path resolves to the real file on disk.
+  serverExternalPackages: ["ffmpeg-static"],
   images: {
     remotePatterns: [
       // X user avatars (used only during ingestion; we re-host to R2 afterwards,
