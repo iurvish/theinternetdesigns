@@ -9,6 +9,7 @@ export type PostListItem = {
   caption: string | null;
   sourceUrl: string;
   hasVideo: boolean;
+  autoplayInFeed: boolean;
   imageCount: number;
   publishedAt: Date | null;
   creator: {
@@ -80,6 +81,7 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
       caption: p.caption,
       sourceUrl: p.sourceUrl,
       hasVideo: p.hasVideo,
+      autoplayInFeed: p.autoplayInFeed,
       imageCount: p.imageCount,
       publishedAt: p.publishedAt,
       creator: {

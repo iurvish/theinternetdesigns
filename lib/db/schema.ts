@@ -87,6 +87,8 @@ export const posts = pgTable(
     providerMeta: jsonb("provider_meta"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     hasVideo: boolean("has_video").notNull().default(false),
+    /** When true, this post's video autoplays in the feed (else it plays on hover). */
+    autoplayInFeed: boolean("autoplay_in_feed").notNull().default(false),
     imageCount: integer("image_count").notNull().default(0),
     published: boolean("published").notNull().default(true),
     /** Generated tsvector for FTS across title + caption + creator refs. */

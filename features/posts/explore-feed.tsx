@@ -45,18 +45,27 @@ export function ExploreFeed({
           never blanks out on refresh. Elevated (relative z-30) so its dropdowns
           paint above the grid; drop shadow gives the bar its crisp float. */}
       <div className="relative z-30 flex w-full flex-col items-start border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff,0_8px_20px_-12px_rgba(0,0,0,0.12)]">
-        <div className="flex w-full items-center gap-4 px-3.5">
-          <div className="flex shrink-0 items-center py-3.5">
+        {/* Toolbar row. On mobile it wraps to two rows — colour search + sort on
+            top, the category rail full-width below — so nothing gets crushed.
+            From `sm` up it collapses back to the original single, divider-
+            separated row via flex order + nowrap. */}
+        <div className="flex w-full flex-wrap items-center gap-x-3 px-2 sm:flex-nowrap sm:gap-x-4 sm:px-3.5">
+          <div className="order-1 flex shrink-0 items-center py-2.5 sm:py-3.5">
             <ColorSearch selected={colors} onSelected={setColors} />
           </div>
 
-          <Divider />
+          <Divider className="order-2 hidden sm:block" />
 
-          <PillRail categories={categories} active={active} onSelect={setActive} />
+          <PillRail
+            categories={categories}
+            active={active}
+            onSelect={setActive}
+            className="order-3 w-full basis-full border-t border-[#e3e5e8] sm:w-auto sm:basis-auto sm:flex-1 sm:border-0"
+          />
 
-          <Divider />
+          <Divider className="order-4 hidden sm:block" />
 
-          <div className="flex shrink-0 items-center py-3.5">
+          <div className="order-2 ml-auto flex shrink-0 items-center py-2.5 sm:order-5 sm:ml-0 sm:py-3.5">
             <SortMenu value={sort} onChange={setSort} />
           </div>
         </div>
@@ -64,7 +73,12 @@ export function ExploreFeed({
 
       {/* Only the grid streams in — the bar above stays put */}
       <Suspense fallback={<GridSkeleton />}>
-        <FeedBody postsPromise={postsPromise} active={active} sort={sort} colors={colors} />
+        <FeedBody
+          postsPromise={postsPromise}
+          active={active}
+          sort={sort}
+          colors={colors}
+        />
       </Suspense>
 
       {/* Footer strip */}
@@ -75,7 +89,7 @@ export function ExploreFeed({
 
 function GridBox({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex w-full flex-1 items-start gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-3.5 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]">
+    <div className="flex w-full flex-1 items-start gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-2 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] sm:p-3.5">
       {children}
     </div>
   );
@@ -131,6 +145,15 @@ function FeedBody({
     setMediaByPost((m) => (m[postId] === idx ? m : { ...m, [postId]: idx }));
   }, []);
 
+  // Shared per-post video position, so a clip carries over between the grid card
+  // and the lightbox — opening or closing never restarts it. The card pauses while
+  // its post is open in the lightbox (below) so the two never drift apart.
+  const videoTimeRef = useRef<Record<string, number>>({});
+  const getVideoTime = useCallback((id: string) => videoTimeRef.current[id], []);
+  const setVideoTime = useCallback((id: string, t: number) => {
+    videoTimeRef.current[id] = t;
+  }, []);
+
   const visible = useMemo(() => {
     // Colour search replaces the feed with its (server-ranked) results.
     if (colorActive) return colorPosts ?? [];
@@ -157,7 +180,7 @@ function FeedBody({
     <>
       <GridBox>
         {colorActive && colorPosts === null && colorLoading ? (
-          <div className="w-full columns-2 gap-2.5 md:columns-3">
+          <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
             {Array.from({ length: 9 }).map((_, i) => (
               <div
                 key={i}
@@ -171,7 +194,7 @@ function FeedBody({
         ) : visible.length === 0 ? (
           <EmptyState hasPosts={posts.length > 0} colorSearch={colorActive} />
         ) : (
-          <div className="w-full columns-2 gap-2.5 md:columns-3 [column-fill:_balance]">
+          <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3 [column-fill:_balance]">
             {visible.map((p, i) => (
               <MasonryCard
                 key={p.id}
@@ -180,6 +203,10 @@ function FeedBody({
                 onOpen={setOpenIndex}
                 mediaIndex={mediaByPost[p.id] ?? 0}
                 onMediaIndex={(idx) => setPostMedia(p.id, idx)}
+                // Pause this card's video while it's the one open in the lightbox.
+                suspended={openIndex === i}
+                getVideoTime={getVideoTime}
+                setVideoTime={setVideoTime}
               />
             ))}
           </div>
@@ -195,6 +222,8 @@ function FeedBody({
             initialMediaIndex={mediaByPost[visible[openIndex]?.id] ?? 0}
             onIndexChange={setOpenIndex}
             onMediaIndex={setPostMedia}
+            getVideoTime={getVideoTime}
+            setVideoTime={setVideoTime}
             onClose={() => {
               // Reset the just-closed card back to its first image once the exit
               // has played, so the grid always settles on a consistent thumbnail.
@@ -212,7 +241,7 @@ function FeedBody({
 function GridSkeleton() {
   return (
     <GridBox>
-      <div className="w-full columns-2 gap-2.5 md:columns-3">
+      <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
         {Array.from({ length: 9 }).map((_, i) => (
           <div
             key={i}
@@ -227,11 +256,14 @@ function GridSkeleton() {
   );
 }
 
-function Divider() {
+function Divider({ className }: { className?: string }) {
   // Full-height hairline with a 1px white bevel to its right (Figma node 12:162).
   return (
     <div
-      className="w-px shrink-0 self-stretch bg-[#e3e5e8] shadow-[1px_0_0_0_rgba(255,255,255,0.9)]"
+      className={cn(
+        "w-px shrink-0 self-stretch bg-[#e3e5e8] shadow-[1px_0_0_0_rgba(255,255,255,0.9)]",
+        className,
+      )}
       aria-hidden
     />
   );
@@ -244,10 +276,12 @@ function PillRail({
   categories,
   active,
   onSelect,
+  className,
 }: {
   categories: Category[];
   active: string;
   onSelect: (slug: string) => void;
+  className?: string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -272,10 +306,10 @@ function PillRail({
   }, [categories]);
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div className={cn("relative min-w-0", className)}>
       <div
         ref={scrollRef}
-        className="flex items-center gap-3 overflow-x-auto py-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex items-center gap-2 overflow-x-auto py-2.5 [scrollbar-width:none] sm:gap-3 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
       >
         <Pill label="All" active={active === "all"} onClick={() => onSelect("all")} />
         {categories.map((c) => (
@@ -318,7 +352,7 @@ function Pill({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm tracking-tight shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100",
+        "flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] tracking-tight shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100 sm:px-3.5 sm:py-2.5 sm:text-sm",
         active
           ? "bg-[#1f2123] text-[#eaebeb]"
           : "bg-[#f2f2f2] text-[#707275] hover:bg-[#ececec]",
@@ -350,7 +384,7 @@ function SortMenu({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-30 items-center justify-between overflow-hidden rounded-3xl bg-[#f9f9fa] p-2.5 text-sm tracking-tight text-[#1f2123] shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]"
+        className="flex w-26 items-center justify-between overflow-hidden rounded-3xl bg-[#f9f9fa] p-2 text-[13px] tracking-tight text-[#1f2123] shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] sm:w-30 sm:p-2.5 sm:text-sm"
       >
         <span className="whitespace-nowrap">{SORT_LABELS[value]}</span>
         <ChevronDown
@@ -371,7 +405,7 @@ function SortMenu({
             transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top right" }}
             className={cn(
-              "absolute right-0 top-full z-50 mt-1.5 w-30 overflow-hidden rounded-xl bg-white p-1",
+              "absolute right-0 top-full z-50 mt-1.5 w-26 overflow-hidden rounded-xl bg-white p-1 sm:w-30",
               POPOVER_SHADOW,
             )}
           >
@@ -417,12 +451,19 @@ function MasonryCard({
   onOpen,
   mediaIndex,
   onMediaIndex,
+  suspended,
+  getVideoTime,
+  setVideoTime,
 }: {
   post: PostListItem;
   index: number;
   onOpen: (i: number) => void;
   mediaIndex: number;
   onMediaIndex: (idx: number) => void;
+  /** True while this post is open in the lightbox — pause so it doesn't drift. */
+  suspended: boolean;
+  getVideoTime: (id: string) => number | undefined;
+  setVideoTime: (id: string, t: number) => void;
 }) {
   const aspectRatio =
     post.thumbnail?.width && post.thumbnail?.height
@@ -443,6 +484,10 @@ function MasonryCard({
       : [];
   const mediaCount = media.length;
   const isGallery = !post.hasVideo && mediaCount > 1;
+  // The playable file for a video post (falls back to a gif-kind clip).
+  const videoItem = post.hasVideo
+    ? media.find((m) => m.kind === "video" || m.kind === "gif")
+    : undefined;
 
   // Clamp defensively — the shared map could hold a stale index after a filter change.
   const mediaIdx = Math.min(Math.max(mediaIndex, 0), Math.max(mediaCount - 1, 0));
@@ -503,6 +548,20 @@ function MasonryCard({
             </motion.div>
           </AnimatePresence>
         ) : null}
+
+        {/* Video posts: an autoplay-or-hover clip laid over the poster. No controls;
+            it just plays muted and loops. When paused it fades out to reveal the
+            poster image beneath, so the card (and the morph source) stay crisp. */}
+        {videoItem?.url ? (
+          <CardVideo
+            src={videoItem.url}
+            poster={videoItem.posterUrl ?? post.thumbnail?.url ?? null}
+            play={(post.autoplayInFeed || hovered) && !suspended}
+            postId={post.id}
+            getVideoTime={getVideoTime}
+            setVideoTime={setVideoTime}
+          />
+        ) : null}
       </div>
 
       {/* top-left: open affordance (hover) */}
@@ -538,6 +597,65 @@ function MasonryCard({
         </span>
       ) : null}
     </motion.div>
+  );
+}
+
+/**
+ * Feed video — muted, looping, no controls. Plays when `play` is true (the admin
+ * autoplay setting, or while the card is hovered) and pauses otherwise, fading to
+ * the poster so the still frame stays sharp under the grid's shared-element morph.
+ */
+function CardVideo({
+  src,
+  poster,
+  play,
+  postId,
+  getVideoTime,
+  setVideoTime,
+}: {
+  src: string;
+  poster?: string | null;
+  play: boolean;
+  postId: string;
+  getVideoTime: (id: string) => number | undefined;
+  setVideoTime: (id: string, t: number) => void;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    if (play) {
+      // Resume from the shared position (set by the lightbox, or a prior hover) so
+      // playback carries over instead of restarting.
+      const saved = getVideoTime(postId);
+      if (saved != null && Number.isFinite(saved) && Math.abs(v.currentTime - saved) > 0.25) {
+        try {
+          v.currentTime = saved;
+        } catch {
+          /* not seekable yet — will play from 0 */
+        }
+      }
+      void v.play().catch(() => {});
+    } else {
+      v.pause();
+    }
+  }, [play, postId, getVideoTime]);
+  return (
+    <video
+      ref={ref}
+      src={src}
+      poster={poster ?? undefined}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      aria-hidden
+      onTimeUpdate={(e) => setVideoTime(postId, e.currentTarget.currentTime)}
+      className={cn(
+        "pointer-events-none absolute inset-0 size-full object-cover transition-opacity duration-300",
+        play ? "opacity-100" : "opacity-0",
+      )}
+    />
   );
 }
 

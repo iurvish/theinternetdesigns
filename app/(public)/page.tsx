@@ -6,12 +6,11 @@ import type { PostListItem } from "@/features/posts/queries";
 import { ExploreFeed, type PostsResult } from "@/features/posts/explore-feed";
 import { SetupRequired } from "@/components/setup-required";
 import { PaperCurl } from "@/components/paper-curl";
-import { getFeedAutoplay } from "@/lib/settings";
 
 export default function HomePage() {
   return (
-    <div className="flex w-full flex-col items-center bg-[#f7f7f7] px-7">
-      <div className="flex w-full flex-1 flex-col items-start px-4 sm:px-10 lg:px-18">
+    <div className="flex w-full flex-col items-center bg-[#f7f7f7] px-1 sm:px-7">
+      <div className="flex w-full flex-1 flex-col items-start px-1 sm:px-10 lg:px-18">
         {/* Hero heading */}
         <div className="relative flex w-full items-center justify-center border-r border-b border-l border-[#e3e5e8] py-12 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] [container-type:inline-size] sm:py-18 lg:py-24">
           {/* Decorative paper-curl at the sheet's top-right corner */}
@@ -31,12 +30,10 @@ export default function HomePage() {
             The soft emboss shadow is applied to the composited result via filter.
           */}
           <h1
-            className="relative grid whitespace-nowrap text-center text-[clamp(1.75rem,8cqw,8rem)] font-bold capitalize leading-none"
+            className="relative grid whitespace-nowrap text-center text-[clamp(2rem,9cqw,9.5rem)] font-bold capitalize leading-none [filter:drop-shadow(0px_2.7px_1.5px_#0000000A)_drop-shadow(0px_0.8px_0.5px_#0000000C)_drop-shadow(0px_0.8px_0.5px_#00000020)] lg:[filter:drop-shadow(0px_3px_1.5px_#0000000D)_drop-shadow(0px_1px_0.5px_#0000000F)_drop-shadow(0px_1px_0.5px_#00000026)]"
             style={{
               fontFamily: "var(--font-sans)",
               letterSpacing: "-0.04em",
-              filter:
-                "drop-shadow(0px 3px 1.5px #0000000D) drop-shadow(0px 1px 0.5px #0000000F) drop-shadow(0px 1px 0.5px #00000026)",
             }}
           >
             <span
@@ -48,7 +45,16 @@ export default function HomePage() {
             </span>
             <span
               className="col-start-1 row-start-1"
-              style={{ color: "#fcfcfc" }}
+              style={{
+                // Top → bottom gradient fill (no stroke here, so combining it
+                // with background-clip:text is safe — the stroke lives on the
+                // bottom layer only).
+                backgroundImage: "linear-gradient(180deg, #fafafa 0%, #ffffff 100%)",
+                backgroundClip: "text",
+                WebkitBackgroundClip: "text",
+                color: "transparent",
+                WebkitTextFillColor: "transparent",
+              }}
             >
               the internet designs
             </span>

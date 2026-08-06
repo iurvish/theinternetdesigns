@@ -37,6 +37,8 @@ export function PostOverlay({
   onIndexChange,
   onMediaIndex,
   onClose,
+  getVideoTime,
+  setVideoTime,
 }: {
   posts: PostListItem[];
   index: number;
@@ -44,6 +46,9 @@ export function PostOverlay({
   onIndexChange: (i: number) => void;
   onMediaIndex?: (postId: string, idx: number) => void;
   onClose: () => void;
+  /** Shared per-post video position, so the lightbox resumes the grid card's clip. */
+  getVideoTime?: (id: string) => number | undefined;
+  setVideoTime?: (id: string, t: number) => void;
 }) {
   const post = posts[index];
 
@@ -325,6 +330,16 @@ export function PostOverlay({
                       <StageImage
                         src={m.url}
                         poster={m.posterUrl}
+                        kind={m.kind}
+                        active={isActive && phase !== "in"}
+                        // Resume from — and keep writing back — the grid card's
+                        // position so open/close carries the clip over seamlessly.
+                        startTime={isActive ? getVideoTime?.(post.id) : undefined}
+                        onTime={
+                          isActive && setVideoTime
+                            ? (t) => setVideoTime(post.id, t)
+                            : undefined
+                        }
                         alt={isActive ? (post.caption ?? "") : ""}
                       />
                     </div>
@@ -360,6 +375,7 @@ export function PostOverlay({
                 key={media[mediaIndex]?.url}
                 src={media[mediaIndex]?.url}
                 poster={media[mediaIndex]?.posterUrl}
+                kind={media[mediaIndex]?.kind}
               />
             </motion.div>
           </motion.div>
@@ -444,26 +460,95 @@ export function PostOverlay({
 }
 
 /**
- * Progressive image for the lightbox: paints the (already grid-cached) thumbnail
- * instantly, then fades the full-quality render in on top the moment it loads —
- * so opening never shows a blank frame while the large image streams in, yet it
- * still settles at full quality. If the full image is already cached it appears
- * immediately (the `complete` check covers browsers that skip a fresh onLoad).
+ * Progressive media for the lightbox. For images it paints the (already grid-
+ * cached) thumbnail instantly, then fades the full-quality render in on top the
+ * moment it loads — so opening never shows a blank frame while the large image
+ * streams in. For video/gif media it renders a muted, looping, controls-free
+ * `<video>` that autoplays while it's the active (centre) slide and pauses
+ * otherwise, over its poster so the still frame shows until playback starts.
  */
 function StageImage({
   src,
   poster,
   alt = "",
+  kind = "image",
+  active = false,
+  startTime,
+  onTime,
 }: {
   src?: string;
   poster?: string | null;
   alt?: string;
+  kind?: MediaItem["kind"];
+  active?: boolean;
+  /** Seek here the moment the video starts, so it resumes rather than restarts. */
+  startTime?: number;
+  onTime?: (t: number) => void;
 }) {
+  const isVideo = kind === "video" || kind === "gif";
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [loaded, setLoaded] = useState(false);
   const ref = useRef<HTMLImageElement>(null);
+  // Latest handoff position, read (not depended on) when playback starts so a
+  // mid-play write never re-seeks the video.
+  const startRef = useRef(startTime);
+  useEffect(() => {
+    startRef.current = startTime;
+  }, [startTime]);
+
   useEffect(() => {
     if (ref.current?.complete) setLoaded(true);
   }, []);
+
+  // Only the centre slide plays; neighbours/hero rest on their poster.
+  useEffect(() => {
+    if (!isVideo) return;
+    const v = videoRef.current;
+    if (!v) return;
+    if (active) {
+      const saved = startRef.current;
+      if (saved != null && Number.isFinite(saved) && Math.abs(v.currentTime - saved) > 0.25) {
+        try {
+          v.currentTime = saved;
+        } catch {
+          /* not seekable yet — plays from wherever it is */
+        }
+      }
+      void v.play().catch(() => {});
+    } else {
+      v.pause();
+    }
+  }, [isVideo, active, src]);
+
+  if (isVideo) {
+    return (
+      <>
+        {poster ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={poster}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="absolute inset-0 size-full select-none object-cover"
+          />
+        ) : null}
+        <video
+          ref={videoRef}
+          src={src}
+          poster={poster ?? undefined}
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          aria-label={alt || undefined}
+          onTimeUpdate={onTime ? (e) => onTime(e.currentTarget.currentTime) : undefined}
+          className="absolute inset-0 size-full select-none object-cover"
+        />
+      </>
+    );
+  }
+
   return (
     <>
       {poster ? (
