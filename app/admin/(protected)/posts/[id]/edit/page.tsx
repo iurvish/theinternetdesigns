@@ -55,6 +55,8 @@ export default async function EditPostPage({
         initialTitle={post.title ?? ""}
         initialCaption={post.caption ?? ""}
         initialPublished={post.published}
+        initialAutoplayInFeed={post.autoplayInFeed}
+        hasVideo={post.hasVideo}
         initialCategoryIds={currentLinks.map((l) => l.categoryId)}
         categories={cats}
         media={mediaItems}

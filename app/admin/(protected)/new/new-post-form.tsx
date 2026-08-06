@@ -24,6 +24,8 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
+  // Autoplay this post's video in the feed (defaults on for video tweets).
+  const [autoplayInFeed, setAutoplayInFeed] = useState(true);
   const [previewPending, startPreview] = useTransition();
   const [publishPending, startPublish] = useTransition();
 
@@ -44,6 +46,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
       setCaption(res.tweet.text);
       setTitle("");
       setSelectedCats(new Set());
+      setAutoplayInFeed(true);
     });
   }
 
@@ -65,6 +68,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
         caption,
         categoryIds: Array.from(selectedCats),
         mediaColors: palettes,
+        autoplayInFeed,
       });
       if (!res.ok) {
         toast.error(res.error);
@@ -212,6 +216,17 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                 })}
               </div>
             </div>
+
+            {tweet.media.some((m) => m.kind === "video" || m.kind === "gif") ? (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={autoplayInFeed}
+                  onChange={(e) => setAutoplayInFeed(e.target.checked)}
+                />
+                Autoplay video in feed (otherwise it plays on hover)
+              </label>
+            ) : null}
 
             <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
               <Button

@@ -19,6 +19,8 @@ export function EditPostForm({
   initialTitle,
   initialCaption,
   initialPublished,
+  initialAutoplayInFeed,
+  hasVideo,
   initialCategoryIds,
   categories,
   media,
@@ -27,6 +29,8 @@ export function EditPostForm({
   initialTitle: string;
   initialCaption: string;
   initialPublished: boolean;
+  initialAutoplayInFeed: boolean;
+  hasVideo: boolean;
   initialCategoryIds: string[];
   categories: Category[];
   media: EditMedia[];
@@ -35,6 +39,7 @@ export function EditPostForm({
   const [title, setTitle] = useState(initialTitle);
   const [caption, setCaption] = useState(initialCaption);
   const [published, setPublished] = useState(initialPublished);
+  const [autoplayInFeed, setAutoplayInFeed] = useState(initialAutoplayInFeed);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialCategoryIds));
   const [palettes, setPalettes] = useState<Record<string, PaletteColor[]>>(() =>
     Object.fromEntries(media.map((m) => [m.id, m.colors])),
@@ -57,6 +62,7 @@ export function EditPostForm({
         title,
         caption,
         published,
+        autoplayInFeed,
         categoryIds: Array.from(selected),
         mediaColors: media.map((m) => ({
           mediaId: m.id,
@@ -129,6 +135,17 @@ export function EditPostForm({
           />
           Published (visible on the public site)
         </label>
+
+        {hasVideo ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={autoplayInFeed}
+              onChange={(e) => setAutoplayInFeed(e.target.checked)}
+            />
+            Autoplay video in feed (otherwise it plays on hover)
+          </label>
+        ) : null}
 
         <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
           <Button

@@ -4,8 +4,6 @@ import { db } from "@/lib/db";
 import { categories, creators, posts } from "@/lib/db/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
-import { getFeedAutoplay } from "@/lib/settings";
-import { FeedAutoplayToggle } from "./feed-autoplay-toggle";
 
 export default async function AdminDashboard() {
   const [{ count: postCount }] = await db
@@ -17,7 +15,6 @@ export default async function AdminDashboard() {
   const [{ count: categoryCount }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(categories);
-  const feedAutoplay = await getFeedAutoplay();
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -32,15 +29,6 @@ export default async function AdminDashboard() {
         <StatCard label="Creators" value={creatorCount} />
         <StatCard label="Categories" value={categoryCount} />
       </div>
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-sm text-muted-foreground">Feed</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FeedAutoplayToggle initial={feedAutoplay} />
-        </CardContent>
-      </Card>
     </div>
   );
 }

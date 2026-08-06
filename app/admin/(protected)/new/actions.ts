@@ -84,6 +84,8 @@ export type PublishInput = {
   categoryIds: string[];
   /** Admin-reviewed palette per media (same order as tweet.media). */
   mediaColors?: PaletteColor[][];
+  /** Autoplay the post's video in the feed (only meaningful for video posts). */
+  autoplayInFeed?: boolean;
 };
 
 export type PublishResult =
@@ -202,6 +204,8 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
         providerMeta: tweet.raw as object,
         publishedAt,
         hasVideo,
+        // Only autoplay when there's actually a video to play.
+        autoplayInFeed: hasVideo && (input.autoplayInFeed ?? false),
         imageCount,
         published: true,
       });

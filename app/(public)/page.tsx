@@ -89,8 +89,6 @@ async function HomeShell() {
     );
   }
 
-  const feedAutoplay = await getFeedAutoplay();
-
   const postsPromise: Promise<PostsResult> = getRecentPosts({ limit: 60 })
     .then((posts) => ({ posts, error: null }))
     .catch((err) => ({
@@ -98,11 +96,5 @@ async function HomeShell() {
       error: err instanceof Error ? err.message : String(err),
     }));
 
-  return (
-    <ExploreFeed
-      categories={cats}
-      postsPromise={postsPromise}
-      feedAutoplay={feedAutoplay}
-    />
-  );
+  return <ExploreFeed categories={cats} postsPromise={postsPromise} />;
 }

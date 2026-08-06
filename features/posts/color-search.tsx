@@ -227,8 +227,8 @@ export function ColorSearch({
           "pick colours", plus a quick clear when a search is active. */}
       <div
         className={cn(
-          "group flex items-center gap-1 rounded-xl bg-white py-2 transition-transform",
-          hasSelection ? "pl-2.5 pr-1.5" : "px-2.5",
+          "group flex items-center gap-1 rounded-xl bg-white py-1.5 transition-transform sm:py-2",
+          hasSelection ? "pl-2 pr-1 sm:pl-2.5 sm:pr-1.5" : "px-2 sm:px-2.5",
           CRISP,
         )}
       >
