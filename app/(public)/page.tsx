@@ -30,7 +30,7 @@ export default function HomePage() {
             The soft emboss shadow is applied to the composited result via filter.
           */}
           <h1
-            className="relative grid whitespace-nowrap text-center text-[clamp(2rem,9cqw,9.5rem)] font-bold capitalize leading-none [filter:drop-shadow(0px_2.7px_1.5px_#0000000A)_drop-shadow(0px_0.8px_0.5px_#0000000C)_drop-shadow(0px_0.8px_0.5px_#00000020)] lg:[filter:drop-shadow(0px_3px_1.5px_#0000000D)_drop-shadow(0px_1px_0.5px_#0000000F)_drop-shadow(0px_1px_0.5px_#00000026)]"
+            className="relative grid whitespace-nowrap text-center text-[clamp(2.5rem,15cqw,9.5rem)] font-bold capitalize leading-[0.95] [filter:drop-shadow(0px_2.7px_1.5px_#0000000A)_drop-shadow(0px_0.8px_0.5px_#0000000C)_drop-shadow(0px_0.8px_0.5px_#00000020)] sm:text-[clamp(2rem,9cqw,9.5rem)] sm:leading-none lg:[filter:drop-shadow(0px_3px_1.5px_#0000000D)_drop-shadow(0px_1px_0.5px_#0000000F)_drop-shadow(0px_1px_0.5px_#00000026)]"
             style={{
               fontFamily: "var(--font-sans)",
               letterSpacing: "-0.04em",
@@ -41,7 +41,7 @@ export default function HomePage() {
               className="col-start-1 row-start-1"
               style={{ color: "#fcfcfc", WebkitTextStroke: "1.2px #D1D1D1B3" }}
             >
-              the internet designs
+              <Wordmark />
             </span>
             <span
               className="col-start-1 row-start-1"
@@ -56,7 +56,7 @@ export default function HomePage() {
                 WebkitTextFillColor: "transparent",
               }}
             >
-              the internet designs
+              <Wordmark />
             </span>
           </h1>
         </div>
@@ -64,6 +64,23 @@ export default function HomePage() {
         <HomeShell />
       </div>
     </div>
+  );
+}
+
+/**
+ * The wordmark breaks onto two lines below `sm` so the line can stay large on
+ * phones instead of shrinking to fit one row.
+ */
+function Wordmark() {
+  return (
+    <>
+      the internet
+      <span className="sm:hidden">
+        <br />
+      </span>
+      <span className="hidden sm:inline">&nbsp;</span>
+      designs
+    </>
   );
 }
 
@@ -89,7 +106,7 @@ async function HomeShell() {
     );
   }
 
-  const postsPromise: Promise<PostsResult> = getRecentPosts({ limit: 60 })
+  const postsPromise: Promise<PostsResult> = getRecentPosts({ limit: 24 })
     .then((posts) => ({ posts, error: null }))
     .catch((err) => ({
       posts: [] as PostListItem[],

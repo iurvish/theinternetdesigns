@@ -22,12 +22,15 @@ import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
 import { ColorSearch } from "./color-search";
 import { searchByColorsAction } from "./color-search-action";
+import { loadFeedPageAction } from "./feed-actions";
 import { SetupRequired } from "@/components/setup-required";
 
 export type PostsResult = { posts: PostListItem[]; error: string | null };
 
 type Category = { slug: string; name: string };
 type SortKey = "recent" | "oldest";
+
+const FEED_PAGE_SIZE = 24;
 
 const SORT_LABELS: Record<SortKey, string> = {
   recent: "Recently",
@@ -69,11 +72,14 @@ export function ExploreFeed({
 
           <Divider className="order-2 hidden sm:block" />
 
+          {/* On mobile the rail sits on its own row, so it bleeds past the toolbar's
+              horizontal padding — otherwise its top hairline stops short of the
+              container's left/right borders. */}
           <PillRail
             categories={categories}
             active={active}
             onSelect={setActive}
-            className="order-3 w-full basis-full border-t border-[#e3e5e8] sm:w-auto sm:basis-auto sm:flex-1 sm:border-0"
+            className="order-3 -mx-2 w-[calc(100%+1rem)] basis-[calc(100%+1rem)] border-t border-[#e3e5e8] sm:mx-0 sm:w-auto sm:basis-auto sm:flex-1 sm:border-0"
           />
 
           <Divider className="order-4 hidden sm:block" />
@@ -119,8 +125,28 @@ function FeedBody({
   sort: SortKey;
   colors: string[];
 }) {
-  const { posts, error } = use(postsPromise);
+  const { posts: initialPosts, error } = use(postsPromise);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+
+  // Paginated feed — first page streams in via Suspense; further pages append as
+  // the sentinel approaches the viewport. Category/sort resets to page 0.
+  const [feedPosts, setFeedPosts] = useState<PostListItem[]>(initialPosts);
+  const [hasMore, setHasMore] = useState(initialPosts.length >= FEED_PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [feedBootstrapping, setFeedBootstrapping] = useState(false);
+  const loadGen = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Adopt the streamed first page whenever the Suspense promise resolves to a new
+  // one (adjust-during-render rather than an effect, so there's no extra paint).
+  const [syncedInitial, setSyncedInitial] = useState(initialPosts);
+  if (syncedInitial !== initialPosts) {
+    setSyncedInitial(initialPosts);
+    setFeedPosts(initialPosts);
+    setHasMore(initialPosts.length >= FEED_PAGE_SIZE);
+  }
+
   // Colour-matched results fetched in place. Stored tagged with the colour key so
   // we can tell fresh results from a previous search's (avoids showing stale posts
   // during a re-fetch) and only ever setState inside the async callback.
@@ -134,35 +160,98 @@ function FeedBody({
     if (colors.length === 0) return;
     let cancelled = false;
     const key = colorKey;
-    // The search is explicit (the popover's Search button commits the colours),
-    // so this fires once per committed set — no debounce needed.
     searchByColorsAction(colors).then((res) => {
       if (!cancelled) setColorResult({ key, posts: res });
     });
     return () => {
       cancelled = true;
     };
-    // colorKey identifies the colour set; `colors` identity changes each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorKey]);
+
+  // Refetch page 0 only when the category/sort actually change. Clearing a colour
+  // search must NOT refetch — the feed is still in state, so it comes straight back
+  // with no skeleton flash.
+  const loadedFilterKey = useRef(`all|recent`);
+  useEffect(() => {
+    const filterKey = `${active}|${sort}`;
+    if (loadedFilterKey.current === filterKey) return;
+    loadedFilterKey.current = filterKey;
+
+    const gen = ++loadGen.current;
+    let cancelled = false;
+    setFeedBootstrapping(true);
+    setHasMore(true);
+    loadFeedPageAction({ offset: 0, category: active, sort }).then((page) => {
+      if (cancelled || loadGen.current !== gen) return;
+      setFeedPosts(page);
+      setHasMore(page.length >= FEED_PAGE_SIZE);
+      setFeedBootstrapping(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, sort]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || colors.length > 0 || feedBootstrapping)
+      return;
+    const gen = loadGen.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await loadFeedPageAction({
+        offset: feedPosts.length,
+        category: active,
+        sort,
+      });
+      if (loadGen.current !== gen) return;
+      setFeedPosts((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        const next = page.filter((p) => !seen.has(p.id));
+        return next.length ? [...prev, ...next] : prev;
+      });
+      setHasMore(page.length >= FEED_PAGE_SIZE);
+    } finally {
+      if (loadGen.current === gen) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [
+    hasMore,
+    colors.length,
+    feedBootstrapping,
+    feedPosts.length,
+    active,
+    sort,
+  ]);
+
+  // Prefetch the next page when the sentinel is ~800px from view.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || colors.length > 0) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void loadMore();
+      },
+      { rootMargin: "800px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadMore, colors.length, feedPosts.length, hasMore]);
 
   const colorActive = colors.length > 0;
   const colorReady = colorActive && colorResult?.key === colorKey;
   const colorLoading = colorActive && !colorReady;
   const colorPosts = colorReady ? colorResult!.posts : null;
+  const refreshing = colorLoading || feedBootstrapping;
 
-  // Single source of truth for which media index each post is showing. Shared by
-  // the grid cards (hover paging) and the lightbox, so the shared-element morph
-  // always hands off between the *same* image — no content jump on open/close —
-  // and opening a card resumes on the image you were previewing.
   const [mediaByPost, setMediaByPost] = useState<Record<string, number>>({});
   const setPostMedia = useCallback((postId: string, idx: number) => {
     setMediaByPost((m) => (m[postId] === idx ? m : { ...m, [postId]: idx }));
   }, []);
 
-  // Shared per-post video position, so a clip carries over between the grid card
-  // and the lightbox — opening or closing never restarts it. The card pauses while
-  // its post is open in the lightbox (below) so the two never drift apart.
   const videoTimeRef = useRef<Record<string, number>>({});
   const getVideoTime = useCallback(
     (id: string) => videoTimeRef.current[id],
@@ -172,19 +261,13 @@ function FeedBody({
     videoTimeRef.current[id] = t;
   }, []);
 
-  const visible = useMemo(() => {
-    // Colour search replaces the feed with its (server-ranked) results.
-    if (colorActive) return colorPosts ?? [];
-    const filtered =
-      active === "all"
-        ? posts
-        : posts.filter((p) => p.categories.some((c) => c.slug === active));
-    return [...filtered].sort((a, b) => {
-      const at = a.publishedAt ? a.publishedAt.getTime() : 0;
-      const bt = b.publishedAt ? b.publishedAt.getTime() : 0;
-      return sort === "recent" ? bt - at : at - bt;
-    });
-  }, [colorActive, colorPosts, posts, active, sort]);
+  // While a colour search is in flight the existing feed stays on screen (dimmed)
+  // instead of collapsing to skeletons; a category switch likewise keeps the old
+  // posts up until the new page lands.
+  const visible = useMemo(
+    () => (colorActive ? (colorPosts ?? feedPosts) : feedPosts),
+    [colorActive, colorPosts, feedPosts],
+  );
 
   if (error) {
     return (
@@ -194,41 +277,69 @@ function FeedBody({
     );
   }
 
+  // Skeletons are a last resort — only when there is genuinely nothing to show.
+  const showSkeleton = refreshing && visible.length === 0;
+
   return (
     <>
       <GridBox>
-        {colorActive && colorPosts === null && colorLoading ? (
-          <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
-                  i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-80",
-                )}
-              />
-            ))}
-          </div>
-        ) : visible.length === 0 ? (
-          <EmptyState hasPosts={posts.length > 0} colorSearch={colorActive} />
-        ) : (
-          <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3 [column-fill:_balance]">
-            {visible.map((p, i) => (
-              <MasonryCard
-                key={p.id}
-                post={p}
-                index={i}
-                onOpen={setOpenIndex}
-                mediaIndex={mediaByPost[p.id] ?? 0}
-                onMediaIndex={(idx) => setPostMedia(p.id, idx)}
-                // Pause this card's video while it's the one open in the lightbox.
-                suspended={openIndex === i}
-                getVideoTime={getVideoTime}
-                setVideoTime={setVideoTime}
-              />
-            ))}
-          </div>
-        )}
+        <div className="w-full">
+          {showSkeleton ? (
+            <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
+                    i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-80",
+                  )}
+                />
+              ))}
+            </div>
+          ) : visible.length === 0 ? (
+            <EmptyState hasPosts={initialPosts.length > 0} colorSearch={colorActive} />
+          ) : (
+            <div
+              className={cn(
+                "w-full columns-1 gap-2.5 transition-opacity duration-200 sm:columns-2 md:columns-3 [column-fill:_balance]",
+                refreshing && "opacity-55",
+              )}
+            >
+              {visible.map((p, i) => (
+                <MasonryCard
+                  key={p.id}
+                  post={p}
+                  index={i}
+                  onOpen={setOpenIndex}
+                  mediaIndex={mediaByPost[p.id] ?? 0}
+                  onMediaIndex={(idx) => setPostMedia(p.id, idx)}
+                  suspended={openIndex === i}
+                  getVideoTime={getVideoTime}
+                  setVideoTime={setVideoTime}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Infinite-scroll sentinel — starts fetching ~800px before it appears. */}
+          {!colorActive && hasMore && !showSkeleton ? (
+            <div ref={sentinelRef} className="w-full py-4" aria-hidden>
+              {loadingMore ? (
+                <div className="columns-1 gap-2.5 sm:columns-2 md:columns-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
+                        i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-72",
+                      )}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </GridBox>
 
       <AnimatePresence>
@@ -243,8 +354,6 @@ function FeedBody({
             getVideoTime={getVideoTime}
             setVideoTime={setVideoTime}
             onClose={() => {
-              // Reset the just-closed card back to its first image once the exit
-              // has played, so the grid always settles on a consistent thumbnail.
               const closedId = visible[openIndex]?.id;
               setOpenIndex(null);
               if (closedId) setPostMedia(closedId, 0);
@@ -327,7 +436,7 @@ function PillRail({
     <div className={cn("relative min-w-0", className)}>
       <div
         ref={scrollRef}
-        className="flex items-center gap-2 overflow-x-auto py-2.5 [scrollbar-width:none] sm:gap-3 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
+        className="flex items-center gap-2 overflow-x-auto px-2 py-2.5 [scrollbar-width:none] sm:gap-3 sm:px-0 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
       >
         <Pill
           label="All"
@@ -466,6 +575,38 @@ const CARD_SLIDE = {
   exit: (d: number) => ({ opacity: 0, x: d * -14 }),
 } as const;
 
+/**
+ * Two-zone viewport presence for feed cards:
+ * - `near` (~900px margin): warm/mount the video element before it scrolls in
+ * - `inView` (~120px margin): actually autoplay; pause as soon as it leaves
+ */
+function useViewportPresence(enabled: boolean) {
+  const [node, setNode] = useState<HTMLElement | null>(null);
+  const [near, setNear] = useState(false);
+  const [inView, setInView] = useState(false);
+
+  useEffect(() => {
+    if (!enabled || !node) return;
+
+    const nearIo = new IntersectionObserver(
+      ([e]) => setNear(Boolean(e?.isIntersecting)),
+      { rootMargin: "900px 0px" },
+    );
+    const playIo = new IntersectionObserver(
+      ([e]) => setInView(Boolean(e?.isIntersecting)),
+      { rootMargin: "120px 0px" },
+    );
+    nearIo.observe(node);
+    playIo.observe(node);
+    return () => {
+      nearIo.disconnect();
+      playIo.disconnect();
+    };
+  }, [enabled, node]);
+
+  return { ref: setNode, near, inView };
+}
+
 /** Small skeuomorphic layout-preview widget from the toolbar (node 1:22). */
 function MasonryCard({
   post,
@@ -519,6 +660,8 @@ function MasonryCard({
     ? media.find((m) => m.kind === "video" || m.kind === "gif")
     : undefined;
 
+  const { ref: viewportRef, near, inView } = useViewportPresence(Boolean(videoItem));
+
   // Clamp defensively — the shared map could hold a stale index after a filter change.
   const mediaIdx = Math.min(
     Math.max(mediaIndex, 0),
@@ -542,6 +685,7 @@ function MasonryCard({
 
   return (
     <motion.div
+      ref={viewportRef}
       layoutId={`post-${post.id}`}
       transition={{ type: "spring", duration: 0.4, bounce: 0.08 }}
       role="button"
@@ -588,14 +732,16 @@ function MasonryCard({
           </AnimatePresence>
         ) : null}
 
-        {/* Video posts: an autoplay-or-hover clip laid over the poster. No controls;
-            it just plays muted and loops. When paused it fades out to reveal the
-            poster image beneath, so the card (and the morph source) stay crisp. */}
-        {videoItem?.url ? (
+        {/* Video posts: mount the <video> only when near the viewport, and play
+            only while in view (or hovered). Far-away cards keep the poster only
+            so hundreds of clips never decode at once. */}
+        {videoItem?.url && near ? (
           <CardVideo
             src={videoItem.url}
             poster={videoItem.posterUrl ?? post.thumbnail?.url ?? null}
-            play={(post.autoplayInFeed || hovered) && !suspended}
+            play={
+              ((post.autoplayInFeed && inView) || hovered) && !suspended
+            }
             postId={post.id}
             getVideoTime={getVideoTime}
             setVideoTime={setVideoTime}

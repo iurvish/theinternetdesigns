@@ -176,11 +176,12 @@ export function ColorSearch({
       setHexInput(draft[idx]);
     }
   };
-  /** Clear from the trigger pill — an explicit action, so this does drop the feed. */
-  const clearAll = () => {
-    writeDraft([]);
-    setEdit(0);
-    onSelected([]);
+  /** Drop one committed colour straight from the trigger — updates the feed. */
+  const removeSelected = (idx: number) => {
+    const next = selected.filter((_, i) => i !== idx);
+    writeDraft(next);
+    setEdit(next.length);
+    onSelected(next);
   };
   const openPicker = () => {
     if (open) {
@@ -223,12 +224,13 @@ export function ColorSearch({
 
   return (
     <div ref={rootRef} className="relative">
-      {/* Trigger — dots glyph (or committed swatches) + a `+` hint so it reads as
-          "pick colours", plus a quick clear when a search is active. */}
+      {/* Trigger — dots glyph opens the picker; each committed colour sits beside it
+          as a swatch (same rectangular treatment as the admin palette editor) that
+          reveals a cancel badge on hover so it can be dropped individually. */}
       <div
         className={cn(
-          "group flex items-center gap-1 rounded-xl bg-white py-1.5 transition-transform sm:py-2",
-          hasSelection ? "pl-2 pr-1 sm:pl-2.5 sm:pr-1.5" : "px-2 sm:px-2.5",
+          "flex items-center gap-1.5 rounded-xl bg-white py-1.5 transition-transform sm:py-2",
+          hasSelection ? "pl-2 pr-1.5 sm:pl-2.5" : "px-2 sm:px-2.5",
           CRISP,
         )}
       >
@@ -238,34 +240,29 @@ export function ColorSearch({
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           aria-label="Search by colour"
-          className="flex items-center gap-1.5 active:scale-[0.97] motion-reduce:active:scale-100"
+          className="flex items-center active:scale-[0.97] motion-reduce:active:scale-100"
         >
-          {hasSelection ? (
-            <span className="flex items-center">
-              {selected.map((c, i) => (
-                <span
-                  key={c}
-                  className="size-[18px] rounded-full ring-2 ring-white"
-                  style={{ backgroundColor: c, marginLeft: i === 0 ? 0 : -6 }}
-                />
-              ))}
-            </span>
-          ) : (
-            <ColorDotsIcon className="size-[18px]" />
-          )}
-          {selected.length < MAX_COLORS ? (
-            <Plus className="size-3.5 text-[#adadb0]" strokeWidth={2.4} aria-hidden />
-          ) : null}
+          <ColorDotsIcon className="size-[18px]" />
         </button>
+
         {hasSelection ? (
-          <button
-            type="button"
-            onClick={clearAll}
-            aria-label="Clear colour search"
-            className="flex size-5 items-center justify-center rounded-full text-[#9a9a9d] opacity-0 transition-[opacity,colors] hover:bg-[#f0f0f1] hover:text-[#1f2123] focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            <X className="size-3.5" strokeWidth={2.4} />
-          </button>
+          <span className="flex items-center gap-1">
+            {selected.map((c, i) => (
+              <button
+                key={`${c}-${i}`}
+                type="button"
+                onClick={() => removeSelected(i)}
+                aria-label={`Remove colour ${c}`}
+                title={`Remove ${c}`}
+                className="group/swatch relative size-5 shrink-0 overflow-hidden rounded-[6px] ring-1 ring-inset ring-black/10 transition-transform active:scale-[0.94] motion-reduce:active:scale-100"
+                style={{ backgroundColor: c }}
+              >
+                <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white opacity-0 transition-opacity group-hover/swatch:opacity-100 group-focus-visible/swatch:opacity-100">
+                  <X className="size-3" strokeWidth={3} />
+                </span>
+              </button>
+            ))}
+          </span>
         ) : null}
       </div>
 

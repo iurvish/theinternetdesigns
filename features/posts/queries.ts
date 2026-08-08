@@ -1,7 +1,13 @@
 import "server-only";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { categories, creators, media, postCategories, posts } from "@/lib/db/schema";
+import {
+  bestPaletteDistance,
+  hexToHsl,
+  type Hsl,
+} from "@/lib/media/color-utils";
+import type { PaletteColor } from "@/lib/media/colors";
 
 export type PostListItem = {
   id: string;
@@ -108,16 +114,39 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
   });
 }
 
-export async function getRecentPosts(opts: { limit?: number; offset?: number } = {}) {
-  const limit = opts.limit ?? 60;
+export async function getRecentPosts(
+  opts: {
+    limit?: number;
+    offset?: number;
+    category?: string | null;
+    sort?: "recent" | "oldest";
+  } = {},
+) {
+  const limit = opts.limit ?? 24;
   const offset = opts.offset ?? 0;
-  const rows = await db
-    .select()
-    .from(posts)
-    .where(eq(posts.published, true))
-    .orderBy(desc(posts.publishedAt), desc(posts.createdAt))
-    .limit(limit)
-    .offset(offset);
+  const sortDir = opts.sort === "oldest" ? asc : desc;
+
+  let rows: (typeof posts.$inferSelect)[];
+  if (opts.category && opts.category !== "all") {
+    rows = await db
+      .select({ post: posts })
+      .from(posts)
+      .innerJoin(postCategories, eq(postCategories.postId, posts.id))
+      .innerJoin(categories, eq(categories.id, postCategories.categoryId))
+      .where(and(eq(posts.published, true), eq(categories.slug, opts.category)))
+      .orderBy(sortDir(posts.publishedAt), sortDir(posts.createdAt))
+      .limit(limit)
+      .offset(offset)
+      .then((r) => r.map((row) => row.post));
+  } else {
+    rows = await db
+      .select()
+      .from(posts)
+      .where(eq(posts.published, true))
+      .orderBy(sortDir(posts.publishedAt), sortDir(posts.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
   return loadPostsWithRelations(rows);
 }
 
@@ -168,65 +197,64 @@ export async function searchPosts(query: string, opts: { limit?: number } = {}) 
   return loadPostsWithRelations(rows as unknown as (typeof posts.$inferSelect)[]);
 }
 
-/** Max squared RGB distance for a palette colour to count as a match (~48/channel). */
-const COLOR_MATCH_SQ = 48 * 48;
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const int = parseInt(m[1], 16);
-  return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
-}
-
 /**
- * Find published posts whose media palette contains a colour close to EVERY
- * requested colour ("designs using these colours"). Ranked by how tightly the
- * palette matches — the sum, across requested colours, of the nearest palette
- * colour's distance. Matches against the per-media `colors` jsonb populated at
- * upload time.
+ * Find published posts whose media palette matches ANY of the requested colours.
+ * Uses HSL proximity (hue for chromatic colours, lightness for neutrals) instead
+ * of raw RGB distance, so blues find soft UI blues and mid-greys don't pull white.
+ *
+ * Matching is inclusive: asking for grey + red returns posts using either. Posts
+ * that hit more of the requested colours rank above single-colour matches.
  */
 export async function searchPostsByColors(
   hexes: string[],
   opts: { limit?: number } = {},
 ) {
-  const targets = hexes.map(hexToRgb).filter((c): c is { r: number; g: number; b: number } => c !== null);
+  const targets = hexes
+    .map(hexToHsl)
+    .filter((c): c is Hsl => c !== null);
   if (targets.length === 0) return [];
   const limit = opts.limit ?? 120;
 
-  // Per requested colour: the closest palette colour across the post's media.
-  const dist = (t: { r: number; g: number; b: number }) => sql`
-    (select min(
-       power((c->>'r')::int - ${t.r}, 2) +
-       power((c->>'g')::int - ${t.g}, 2) +
-       power((c->>'b')::int - ${t.b}, 2))
-     from ${media} m, jsonb_array_elements(m.colors) c
-     where m.post_id = p.id)
-  `;
-  const nearest = targets.map(dist);
-  // AND semantics: every requested colour must have a match within threshold.
-  const conditions = sql.join(
-    nearest.map((d) => sql`coalesce(${d}, 1e9) <= ${COLOR_MATCH_SQ}`),
-    sql` and `,
-  );
-  // Relevance: total closeness across all requested colours (smaller = better).
-  const score = sql.join(
-    nearest.map((d) => sql`coalesce(${d}, 1e9)`),
-    sql` + `,
-  );
-
-  // Rank ids via raw SQL, then hydrate full rows through the typed select so
-  // column names map to camelCase (raw `db.execute` returns snake_case).
-  const ranked = await db.execute<{ id: string }>(sql`
-    select p.id from ${posts} p
-    where p.published = true and ${conditions}
-    order by (${score}) asc, p.published_at desc nulls last
-    limit ${limit}
+  // Pull every published post's palette swatches — small jsonb payloads, scored in
+  // JS so we can use proper HSL matching (SQL RGB distance was too crude).
+  const rows = await db.execute<{
+    id: string;
+    colors: PaletteColor[] | null;
+  }>(sql`
+    select p.id, m.colors
+    from ${posts} p
+    inner join ${media} m on m.post_id = p.id
+    where p.published = true
   `);
-  const ids = (ranked as unknown as { id: string }[]).map((r) => r.id);
+
+  const palettes = new Map<string, PaletteColor[]>();
+  for (const row of rows as unknown as { id: string; colors: PaletteColor[] | null }[]) {
+    const existing = palettes.get(row.id) ?? [];
+    if (Array.isArray(row.colors)) existing.push(...row.colors);
+    palettes.set(row.id, existing);
+  }
+
+  const scored: { id: string; hits: number; score: number }[] = [];
+  for (const [id, palette] of palettes) {
+    if (palette.length === 0) continue;
+    let hits = 0;
+    let total = 0;
+    for (const target of targets) {
+      const d = bestPaletteDistance(target, palette);
+      if (d == null) continue;
+      hits++;
+      total += d;
+    }
+    if (hits > 0) scored.push({ id, hits, score: total / hits });
+  }
+
+  // More requested colours matched wins; ties break on how close the match is.
+  scored.sort((a, b) => (b.hits - a.hits) || (a.score - b.score));
+  const ids = scored.slice(0, limit).map((s) => s.id);
   if (ids.length === 0) return [];
 
-  const rows = await db.select().from(posts).where(inArray(posts.id, ids));
-  const byId = new Map(rows.map((r) => [r.id, r]));
+  const postRows = await db.select().from(posts).where(inArray(posts.id, ids));
+  const byId = new Map(postRows.map((r) => [r.id, r]));
   const ordered = ids
     .map((id) => byId.get(id))
     .filter((r): r is typeof posts.$inferSelect => Boolean(r));

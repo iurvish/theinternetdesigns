@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,8 @@ const DRAWER = { duration: 0.4, ease: [0.32, 0.72, 0, 1] } as const;
 
 // Carousel tuning (all relative to the frame width, no hard-coded px).
 const PEEK_OFFSET = 1.06; // centre-to-centre distance of an adjacent slide, × frameW
+// Phones have far less room either side, so neighbours ride closer in to stay visible.
+const PEEK_OFFSET_MOBILE = 0.98;
 const PEEK_SCALE = 0.76; // neighbours shrink so the centre slide is the focus
 
 const FRAME_SHADOW =
@@ -68,7 +70,6 @@ export function PostOverlay({
   // spamming it — snap instantly instead of animating (a held key that animates
   // just looks laggy). Falls back to the smooth slide for deliberate single steps.
   const [fastNav, setFastNav] = useState(false);
-  const [navDir, setNavDir] = useState(1);
   const lastNavRef = useRef(0);
   const navResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -180,7 +181,6 @@ export function PostOverlay({
     (d: number) => {
       const nextI = mediaIndex + d;
       if (nextI < 0 || nextI >= mediaCount) return;
-      setNavDir(d);
       // Steps closer together than ~90ms (a held key repeats every ~30–50ms) count
       // as rapid nav → snap. A short timer restores the slide once the burst ends.
       const now = performance.now();
@@ -220,6 +220,18 @@ export function PostOverlay({
     [index, posts.length, onIndexChange],
   );
 
+  // Navigation is one-dimensional: step through the post's media, then roll over to
+  // the neighbouring post once you run off either end.
+  const goBack = useCallback(() => {
+    if (mediaIndex > 0) goMedia(-1);
+    else goPost(-1);
+  }, [mediaIndex, goMedia, goPost]);
+
+  const goForward = useCallback(() => {
+    if (mediaIndex < mediaCount - 1) goMedia(1);
+    else goPost(1);
+  }, [mediaIndex, mediaCount, goMedia, goPost]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -229,9 +241,8 @@ export function PostOverlay({
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
         e.preventDefault(); // don't let arrows scroll the page / panel
       }
-      if (e.key === "ArrowLeft") mediaIndex > 0 ? goMedia(-1) : goPost(-1);
-      else if (e.key === "ArrowRight")
-        mediaIndex < mediaCount - 1 ? goMedia(1) : goPost(1);
+      if (e.key === "ArrowLeft") goBack();
+      else if (e.key === "ArrowRight") goForward();
       else if (e.key === "ArrowUp") goPost(-1);
       else if (e.key === "ArrowDown") goPost(1);
     };
@@ -243,21 +254,28 @@ export function PostOverlay({
       if (navResetRef.current) clearTimeout(navResetRef.current);
       document.body.style.overflow = prevOverflow;
     };
-  }, [goMedia, goPost, requestClose, mediaIndex, mediaCount]);
+  }, [goBack, goForward, goPost, requestClose]);
 
   if (!post) return null;
+
+  const atStart = mediaIndex === 0 && index === 0;
+  const atEnd = mediaIndex >= mediaCount - 1 && index === posts.length - 1;
 
   // Frame sized to the post's aspect (from its first media) and fitted to the
   // stage; every slide shares this frame so the carousel reads uniformly.
   const aspect =
     media[0]?.width && media[0]?.height ? media[0].width / media[0].height : 4 / 3;
-  let frameW = stage.w * (isMobile ? 0.9 : 0.58);
+  // Mobile keeps the frame narrower than the stage so the previous/next media peek
+  // in at both edges exactly like desktop, rather than sitting on a flat backdrop.
+  let frameW = stage.w * (isMobile ? 0.68 : 0.58);
   let frameH = frameW / aspect;
-  const maxH = stage.h * (isMobile ? 0.92 : 0.84);
+  // Leave room under the frame for the arrow bar.
+  const maxH = stage.h * (isMobile ? 0.78 : 0.8);
   if (frameH > maxH) {
     frameH = maxH;
     frameW = frameH * aspect;
   }
+  const peekOffset = isMobile ? PEEK_OFFSET_MOBILE : PEEK_OFFSET;
 
   const overlay = (
     <div className="fixed inset-0 z-[100] flex flex-col md:block">
@@ -281,28 +299,6 @@ export function PostOverlay({
         <div className="absolute -left-40 -top-40 h-[900px] w-[520px] rotate-[-60deg] rounded-full bg-white/40 blur-[120px]" />
         <div className="absolute left-1/3 -top-60 h-[1000px] w-[620px] rotate-[-55deg] rounded-full bg-white/30 blur-[140px]" />
         <div className="absolute right-10 -top-40 h-[900px] w-[520px] rotate-[-115deg] rounded-full bg-white/30 blur-[120px]" />
-      </motion.div>
-
-      {/* Top-left controls: close + prev/next post */}
-      <motion.div
-        className="absolute left-3 top-3 z-40 flex items-center gap-2 sm:left-5 sm:top-5"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: closing ? 0 : 1 }}
-        transition={FADE}
-      >
-        <ControlButton onClick={requestClose} label="Close">
-          <X className="size-4" />
-        </ControlButton>
-        <ControlButton onClick={() => goPost(-1)} label="Previous post" disabled={index === 0}>
-          <ChevronLeft className="size-4" />
-        </ControlButton>
-        <ControlButton
-          onClick={() => goPost(1)}
-          label="Next post"
-          disabled={index === posts.length - 1}
-        >
-          <ChevronRight className="size-4" />
-        </ControlButton>
       </motion.div>
 
       {/* Carousel stage. On mobile it fills the top flex region; on desktop it
@@ -333,7 +329,7 @@ export function PostOverlay({
                 if (Math.abs(offset) > 2) return null;
                 const isActive = offset === 0;
                 const step = Math.abs(offset);
-                const x = Math.sign(offset) * frameW * PEEK_OFFSET * (step === 1 ? 1 : 1.92);
+                const x = Math.sign(offset) * frameW * peekOffset * (step === 1 ? 1 : 1.92);
                 const scale = isActive ? 1 : PEEK_SCALE;
                 const zIndex = isActive ? 30 : 20 - step;
                 // Active slide stays hidden until the morph hands off (the hero owns
@@ -342,7 +338,7 @@ export function PostOverlay({
                   ? phase === "in"
                     ? 0
                     : 1
-                  : isMobile || switching || !peeksIn
+                  : switching || !peeksIn
                     ? 0
                     : 1;
                 return (
@@ -350,15 +346,21 @@ export function PostOverlay({
                     key={`slide-${i}`}
                     className={
                       isActive
-                        ? "pointer-events-auto absolute left-1/2 top-1/2"
-                        : "pointer-events-auto absolute left-1/2 top-1/2 cursor-pointer"
+                        ? "pointer-events-auto absolute left-1/2 top-1/2 touch-pan-y"
+                        : "pointer-events-auto absolute left-1/2 top-1/2 cursor-pointer touch-pan-y"
                     }
                     style={{ width: frameW, height: frameH, marginLeft: -frameW / 2, marginTop: -frameH / 2, zIndex }}
                     onClick={() => {
                       if (!isActive) setMediaIndex(i);
                     }}
+                    onTouchStart={mediaCount > 1 ? handleTouchStart : undefined}
+                    onTouchEnd={mediaCount > 1 ? handleTouchEnd : undefined}
                     initial={false}
-                    animate={{ x: isActive ? 0 : x, scale, opacity: slideOpacity }}
+                    animate={{
+                      x: isActive ? 0 : x,
+                      scale,
+                      opacity: slideOpacity,
+                    }}
                     transition={fastNav ? { duration: 0 } : { x: SLIDE, scale: SLIDE, opacity: FADE }}
                   >
                     <div className="relative size-full overflow-hidden rounded-[12px]" style={{ boxShadow: FRAME_SHADOW }}>
@@ -412,6 +414,38 @@ export function PostOverlay({
                 kind={media[mediaIndex]?.kind}
               />
             </motion.div>
+          </motion.div>
+        ) : null}
+
+        {/* The overlay's only chrome: one pair of arrows under the frame. They page
+            through the post's media, then roll over to the previous/next post at the
+            ends — same rule as the ← → keys. */}
+        {!closing && phase === "browse" ? (
+          <motion.div
+            className="pointer-events-auto absolute inset-x-0 bottom-4 z-40 flex items-center justify-center gap-3 sm:bottom-5"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={FADE}
+          >
+            <ControlButton
+              onClick={goBack}
+              label={mediaIndex > 0 ? "Previous media" : "Previous post"}
+              disabled={atStart}
+            >
+              <ChevronLeft className="size-4" />
+            </ControlButton>
+            {mediaCount > 1 ? (
+              <span className="min-w-12 text-center text-sm font-medium tabular-nums text-white/90">
+                {mediaIndex + 1} / {mediaCount}
+              </span>
+            ) : null}
+            <ControlButton
+              onClick={goForward}
+              label={mediaIndex < mediaCount - 1 ? "Next media" : "Next post"}
+              disabled={atEnd}
+            >
+              <ChevronRight className="size-4" />
+            </ControlButton>
           </motion.div>
         ) : null}
       </div>
