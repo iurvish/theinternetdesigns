@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { asc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { creators, posts } from "@/lib/db/schema";
+import { creatorProfileUrl } from "@/features/posts/queries";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default async function CreatorsPage() {
@@ -10,6 +10,7 @@ export default async function CreatorsPage() {
       username: creators.username,
       displayName: creators.displayName,
       avatarUrl: creators.avatarUrl,
+      profileUrl: creators.profileUrl,
       postCount: sql<number>`count(${posts.id})::int`,
     })
     .from(creators)
@@ -22,9 +23,11 @@ export default async function CreatorsPage() {
       <h1 className="mb-8 text-3xl font-semibold tracking-tight">Creators</h1>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
         {rows.map((c) => (
-          <Link
+          <a
             key={c.username}
-            href={`/creator/${c.username}`}
+            href={creatorProfileUrl(c) ?? "#"}
+            target="_blank"
+            rel="noreferrer"
             className="flex flex-col items-center gap-2 rounded-2xl border border-border/60 bg-card p-4 text-center transition-colors hover:bg-accent"
           >
             <Avatar className="size-14">
@@ -37,7 +40,7 @@ export default async function CreatorsPage() {
                 @{c.username} · {c.postCount}
               </div>
             </div>
-          </Link>
+          </a>
         ))}
       </div>
     </div>

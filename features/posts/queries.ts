@@ -22,6 +22,8 @@ export type PostListItem = {
     username: string;
     displayName: string;
     avatarUrl: string | null;
+    /** Where the creator lives on the source network — we link straight out to it. */
+    profileUrl: string | null;
   };
   thumbnail: {
     url: string;
@@ -38,6 +40,17 @@ export type PostListItem = {
   }[];
   categories: { slug: string; name: string }[];
 };
+
+/**
+ * Creators have no page of their own — every avatar/name links straight out to the
+ * source network, falling back to the X handle when no profile URL was captured.
+ */
+export function creatorProfileUrl(
+  creator: { profileUrl?: string | null; username?: string | null } | null | undefined,
+): string | null {
+  if (creator?.profileUrl) return creator.profileUrl;
+  return creator?.username ? `https://x.com/${creator.username}` : null;
+}
 
 /** Small shape shared by list/grid views. */
 async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
@@ -94,6 +107,7 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
         username: c?.username ?? "",
         displayName: c?.displayName ?? "",
         avatarUrl: c?.avatarUrl ?? null,
+        profileUrl: creatorProfileUrl(c),
       },
       thumbnail: thumb
         ? {
@@ -158,18 +172,6 @@ export async function getPostsByCategory(slug: string, opts: { limit?: number } 
     .innerJoin(postCategories, eq(postCategories.postId, posts.id))
     .innerJoin(categories, eq(categories.id, postCategories.categoryId))
     .where(and(eq(categories.slug, slug), eq(posts.published, true)))
-    .orderBy(desc(posts.publishedAt), desc(posts.createdAt))
-    .limit(limit);
-  return loadPostsWithRelations(rows.map((r) => r.post));
-}
-
-export async function getPostsByCreator(username: string, opts: { limit?: number } = {}) {
-  const limit = opts.limit ?? 60;
-  const rows = await db
-    .select({ post: posts })
-    .from(posts)
-    .innerJoin(creators, eq(creators.id, posts.creatorId))
-    .where(and(eq(creators.username, username), eq(posts.published, true)))
     .orderBy(desc(posts.publishedAt), desc(posts.createdAt))
     .limit(limit);
   return loadPostsWithRelations(rows.map((r) => r.post));

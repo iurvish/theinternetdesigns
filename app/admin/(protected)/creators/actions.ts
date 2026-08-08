@@ -59,7 +59,6 @@ export async function updateCreator(
 
     revalidatePath("/admin/creators");
     revalidatePath("/creators");
-    revalidatePath(`/creator/${username}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Update failed." };

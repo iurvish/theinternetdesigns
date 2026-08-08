@@ -12,7 +12,7 @@ export default function HomePage() {
     <div className="flex w-full flex-col items-center bg-[#f7f7f7] px-1 sm:px-7">
       <div className="flex w-full flex-1 flex-col items-start px-1 sm:px-10 lg:px-18">
         {/* Hero heading */}
-        <div className="relative flex w-full items-center justify-center border-r border-b border-l border-[#e3e5e8] py-12 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] [container-type:inline-size] sm:py-18 lg:py-24">
+        <div className="relative flex w-full items-center justify-center border-r border-b border-l border-[#e3e5e8] pb-20 pt-14 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] [container-type:inline-size] sm:py-18 lg:py-24">
           {/* Decorative paper-curl at the sheet's top-right corner */}
           <PaperCurl />
           {/* Size scales to the bordered box's own width (container query units),
@@ -30,7 +30,7 @@ export default function HomePage() {
             The soft emboss shadow is applied to the composited result via filter.
           */}
           <h1
-            className="relative grid whitespace-nowrap text-center text-[clamp(2.5rem,15cqw,9.5rem)] font-bold capitalize leading-[0.95] [filter:drop-shadow(0px_2.7px_1.5px_#0000000A)_drop-shadow(0px_0.8px_0.5px_#0000000C)_drop-shadow(0px_0.8px_0.5px_#00000020)] sm:text-[clamp(2rem,9cqw,9.5rem)] sm:leading-none lg:[filter:drop-shadow(0px_3px_1.5px_#0000000D)_drop-shadow(0px_1px_0.5px_#0000000F)_drop-shadow(0px_1px_0.5px_#00000026)]"
+            className="relative grid whitespace-nowrap text-center text-[clamp(2.5rem,15cqw,9.5rem)] font-bold capitalize leading-[1.04] [filter:drop-shadow(0px_2.7px_1.5px_#0000000A)_drop-shadow(0px_0.8px_0.5px_#0000000C)_drop-shadow(0px_0.8px_0.5px_#00000020)] sm:text-[clamp(2rem,9cqw,9.5rem)] sm:leading-none lg:[filter:drop-shadow(0px_3px_1.5px_#0000000D)_drop-shadow(0px_1px_0.5px_#0000000F)_drop-shadow(0px_1px_0.5px_#00000026)]"
             style={{
               fontFamily: "var(--font-sans)",
               letterSpacing: "-0.04em",

@@ -75,9 +75,14 @@ export function CreatorsManager({ initialCreators }: { initialCreators: CreatorR
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{c.displayName}</div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Link href={`/creator/${c.username}`} className="hover:underline">
+                  <a
+                    href={c.profileUrl ?? `https://x.com/${c.username}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:underline"
+                  >
                     @{c.username}
-                  </Link>
+                  </a>
                   <span>·</span>
                   <span>
                     {c.postCount} post{c.postCount === 1 ? "" : "s"}

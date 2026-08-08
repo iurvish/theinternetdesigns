@@ -95,9 +95,9 @@ export function PostOverlay({
 
   // Reset to the first media the instant the active post changes — during render
   // (guarded) so there's no stale-index flash.
-  const prevIndex = useRef(index);
-  if (prevIndex.current !== index) {
-    prevIndex.current = index;
+  const [seenIndex, setSeenIndex] = useState(index);
+  if (seenIndex !== index) {
+    setSeenIndex(index);
     setMediaIndex(0);
     setSwitching(true);
   }
@@ -401,7 +401,12 @@ export function PostOverlay({
             animate={{ opacity: phase === "in" ? 1 : 0 }}
             transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1], delay: phase === "in" ? 0 : 0.24 }}
           >
+            {/* Keyed by post id so switching posts inside the lightbox remounts this
+                element with a clean shared-element identity. Without the key Motion
+                keeps the association made on open, and closing would morph back to
+                the post you first clicked instead of the one you're looking at. */}
             <motion.div
+              key={post.id}
               layoutId={`post-${post.id}`}
               transition={OPEN_MORPH}
               onLayoutAnimationComplete={phase === "in" ? () => setPhase("browse") : undefined}
@@ -601,7 +606,12 @@ function PostInfoContent({ post }: { post: PostListItem }) {
         transition={FADE}
         className="flex flex-col gap-3.5"
       >
-        <Link href={`/creator/${post.creator.username}`} className="flex items-center gap-3">
+        <a
+          href={post.creator.profileUrl ?? "#"}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-3"
+        >
           {post.creator.avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -623,7 +633,7 @@ function PostInfoContent({ post }: { post: PostListItem }) {
               @{post.creator.username}
             </span>
           </div>
-        </Link>
+        </a>
 
         {post.caption ? (
           <p className="whitespace-pre-wrap text-base leading-5 tracking-tight text-[#222426]">

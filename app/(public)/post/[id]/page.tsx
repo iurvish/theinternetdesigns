@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
-import { getPostById } from "@/features/posts/queries";
+import { creatorProfileUrl, getPostById } from "@/features/posts/queries";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -22,7 +22,12 @@ export default async function PostPage({
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
       <div className="mb-6 flex items-center gap-3">
-        <Link href={`/creator/${creator.username}`} className="flex items-center gap-3">
+        <a
+          href={creatorProfileUrl(creator) ?? "#"}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-3"
+        >
           <Avatar className="size-10">
             {creator.avatarUrl ? (
               <AvatarImage src={creator.avatarUrl} alt={creator.displayName} />
@@ -33,7 +38,7 @@ export default async function PostPage({
             <span className="text-sm font-medium">{creator.displayName}</span>
             <span className="text-xs text-muted-foreground">@{creator.username}</span>
           </div>
-        </Link>
+        </a>
         <div className="ml-auto">
           <Link
             href={post.sourceUrl}

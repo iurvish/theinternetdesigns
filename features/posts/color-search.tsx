@@ -229,7 +229,7 @@ export function ColorSearch({
           reveals a cancel badge on hover so it can be dropped individually. */}
       <div
         className={cn(
-          "flex items-center gap-1.5 rounded-xl bg-white py-1.5 transition-transform sm:py-2",
+          "flex items-center gap-1.5 rounded-xl bg-white py-2.5 max-sm:px-2.5 transition-transform cursor-pointer sm:py-2.5",
           hasSelection ? "pl-2 pr-1.5 sm:pl-2.5" : "px-2 sm:px-2.5",
           CRISP,
         )}
@@ -277,7 +277,7 @@ export function ColorSearch({
             style={{ transformOrigin: "top left" }}
             className="pointer-events-none absolute left-0 top-full z-50 mt-2 flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#1f2123] px-2.5 py-1.5 text-xs font-medium text-white shadow-[0_6px_20px_-6px_rgba(0,0,0,0.35)]"
           >
-            <ColorDotsIcon className="size-3.5" />
+            {/* <ColorDotsIcon className="size-3.5" /> */}
             Search by colour
           </motion.div>
         ) : null}
