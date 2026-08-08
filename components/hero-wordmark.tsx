@@ -2,12 +2,16 @@
 
 import { AnimatedSelectionHighlight } from "@/components/animated-selection-highlight";
 
-/** Two lines on mobile, one line from sm up — no <br> so selection rects stay clean. */
+/**
+ * Desktop: one continuous text node ("the internet designs") — no inline gaps.
+ * Mobile: soft break via <br> inside the same flow so selection still spans both lines.
+ */
 function WordmarkLines() {
   return (
-    <span className="inline-flex flex-col items-center leading-none sm:inline-flex sm:flex-row sm:items-baseline sm:gap-[0.22em]">
-      <span>the internet</span>
-      <span>designs</span>
+    <span className="inline-block">
+      the internet{" "}
+      <br className="sm:hidden" aria-hidden="true" />
+      designs
     </span>
   );
 }
@@ -32,7 +36,7 @@ export function HeroWordmark() {
         </span>
         {/* Gradient fill — sole selectable layer */}
         <span
-          className="col-start-1 row-start-1 select-text"
+          className="selection-fill col-start-1 row-start-1 select-text"
           style={{
             backgroundImage: "linear-gradient(180deg, #fafafa 0%, #ffffff 100%)",
             backgroundClip: "text",

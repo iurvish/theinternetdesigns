@@ -18,6 +18,40 @@ type Rect = {
 };
 
 const MIN_RECT_SIZE = 2;
+const LINE_TOLERANCE = 4;
+const MERGE_GAP = 14;
+
+type RawRect = Omit<Rect, "id">;
+
+function mergeClientRects(rects: RawRect[]): RawRect[] {
+  if (rects.length <= 1) return rects;
+
+  const sorted = [...rects].sort((a, b) => a.top - b.top || a.left - b.left);
+  const merged: RawRect[] = [];
+
+  for (const r of sorted) {
+    const prev = merged[merged.length - 1];
+    if (
+      prev &&
+      Math.abs(prev.top - r.top) <= LINE_TOLERANCE &&
+      Math.abs(prev.height - r.height) <= LINE_TOLERANCE
+    ) {
+      const gap = r.left - (prev.left + prev.width);
+      if (gap <= MERGE_GAP) {
+        const right = Math.max(prev.left + prev.width, r.left + r.width);
+        const bottom = Math.max(prev.top + prev.height, r.top + r.height);
+        prev.left = Math.min(prev.left, r.left);
+        prev.top = Math.min(prev.top, r.top);
+        prev.width = right - prev.left;
+        prev.height = bottom - prev.top;
+        continue;
+      }
+    }
+    merged.push({ ...r });
+  }
+
+  return merged;
+}
 
 export function AnimatedSelectionHighlight({
   children,
@@ -51,15 +85,19 @@ export function AnimatedSelectionHighlight({
     }
     const range = selection.getRangeAt(0);
     const containerBox = root.getBoundingClientRect();
-    return Array.from(range.getClientRects())
+    const raw = Array.from(range.getClientRects())
       .filter((r) => r.width > MIN_RECT_SIZE && r.height > MIN_RECT_SIZE)
-      .map((r, i) => ({
-        id: `${Date.now()}-${i}`,
+      .map((r) => ({
         top: r.top - containerBox.top,
         left: r.left - containerBox.left,
         width: r.width,
         height: r.height,
       }));
+
+    return mergeClientRects(raw).map((r, i) => ({
+      ...r,
+      id: `${Date.now()}-${i}`,
+    }));
   }, []);
 
   useEffect(() => {
@@ -163,42 +201,29 @@ export function AnimatedSelectionHighlight({
         [data-selection-highlight] .no-native-select * {
           -webkit-tap-highlight-color: transparent;
         }
+        [data-selection-highlight] .selection-fill::selection {
+          background: rgba(3, 145, 255, 0.35) !important;
+          color: #fafafa !important;
+          -webkit-text-fill-color: #fafafa !important;
+        }
+        [data-selection-highlight] .selection-fill::-moz-selection {
+          background: rgba(3, 145, 255, 0.35) !important;
+          color: #fafafa !important;
+        }
         [data-selection-highlight] .no-native-select::selection,
         [data-selection-highlight] .no-native-select *::selection {
-          background: transparent !important;
-          color: inherit !important;
-          -webkit-text-fill-color: inherit;
+          background: rgba(3, 145, 255, 0.35) !important;
+          color: #fafafa !important;
+          -webkit-text-fill-color: #fafafa !important;
         }
         [data-selection-highlight] .no-native-select::-moz-selection,
         [data-selection-highlight] .no-native-select *::-moz-selection {
-          background: transparent !important;
-          color: inherit !important;
+          background: rgba(3, 145, 255, 0.35) !important;
+          color: #fafafa !important;
         }
       `}</style>
 
-      <AnimatePresence>
-        {rects.map((r) => (
-          <motion.div
-            key={`base-${r.id}`}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="pointer-events-none absolute z-[2] rounded-[3px]"
-            style={{
-              top: r.top,
-              left: r.left,
-              width: r.width,
-              height: r.height,
-              background: isDark
-                ? "rgba(3, 145, 255, 0.6)"
-                : "rgba(3, 145, 255, 0.35)",
-              mixBlendMode: isDark ? "screen" : "multiply",
-            }}
-          />
-        ))}
-      </AnimatePresence>
-
+      {/* Pulse/drag overlays only — base tint comes from styled ::selection */}
       {isDragging &&
         cursorPos &&
         rects.map((r) => (
