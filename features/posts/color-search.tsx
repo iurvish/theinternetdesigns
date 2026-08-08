@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Pipette, Plus, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const MAX_COLORS = 2;
@@ -64,7 +66,7 @@ function ColorDotsIcon({ className }: { className?: string }) {
   );
 }
 
-/** Shared swatch — flat colour tile with a thin inset border. */
+/** Shared swatch — flat colour tile; active state uses an outer ring so it reads on any hue. */
 function ColorSwatch({
   color,
   size = "sm",
@@ -80,16 +82,21 @@ function ColorSwatch({
   onRemove?: () => void;
   className?: string;
 }) {
-  const dim = size === "md" ? "size-8 rounded-[7px]" : "size-5 rounded-[6px]";
+  const dim = size === "md" ? "size-8 rounded-[7px]" : "size-6 rounded-[6px]";
   const tileClass = cn(
-    "block overflow-hidden ring-1 ring-inset ring-black/12",
+    "block overflow-hidden ring-1 ring-inset ring-black/10",
     dim,
-    active && "ring-2 ring-[#1f2123]",
     onClick && "transition-transform active:scale-[0.94] motion-reduce:active:scale-100",
   );
 
   return (
-    <div className={cn("group/swatch relative shrink-0", className)}>
+    <div
+      className={cn(
+        "group/swatch relative shrink-0 rounded-[7px]",
+        active && "ring-2 ring-[#1f2123] ring-offset-2 ring-offset-white",
+        className,
+      )}
+    >
       {onClick ? (
         <button
           type="button"
@@ -97,6 +104,7 @@ function ColorSwatch({
           className={tileClass}
           style={{ backgroundColor: color }}
           aria-label={`Colour ${color}`}
+          aria-current={active ? "true" : undefined}
         />
       ) : (
         <span className={tileClass} style={{ backgroundColor: color }} aria-hidden />
@@ -111,8 +119,7 @@ function ColorSwatch({
           aria-label={`Remove ${color}`}
           className={cn(
             "absolute flex items-center justify-center rounded-full bg-[#1f2123] text-white shadow-sm",
-            size === "md" ? "-right-1 -top-1 size-4" : "-right-1.5 -top-1.5 size-3.5",
-            "opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover/swatch:opacity-100 sm:group-focus-within/swatch:opacity-100",
+            size === "md" ? "-right-1.5 -top-1.5 size-4" : "-right-1 -top-1 size-3.5",
           )}
         >
           <X className={size === "md" ? "size-2.5" : "size-2"} strokeWidth={2.5} />
@@ -288,10 +295,10 @@ export function ColorSearch({
 
   return (
     <div ref={rootRef} className="relative">
-      {/* Toolbar trigger */}
+      {/* Toolbar trigger — height/padding aligned with SortMenu ("Recently") */}
       <div
         className={cn(
-          "flex items-center gap-1 rounded-xl border border-[#e3e5e8] bg-white px-2 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
+          "flex min-h-[36px] items-center gap-1.5 rounded-3xl bg-[#f9f9fa] px-2.5 py-2 shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] sm:min-h-[40px] sm:gap-2 sm:px-3 sm:py-2.5",
         )}
       >
         {hasSelection ? (
@@ -311,9 +318,9 @@ export function ColorSearch({
                 type="button"
                 onClick={() => openPicker(true)}
                 aria-label="Add another colour"
-                className="flex size-5 shrink-0 items-center justify-center rounded-[6px] text-[#9a9a9d] transition-colors hover:bg-[#f2f2f3] hover:text-[#1f2123] active:scale-[0.94] motion-reduce:active:scale-100"
+                className="flex size-6 shrink-0 items-center justify-center rounded-[6px] text-[#9a9a9d] transition-colors hover:bg-[#ececec] hover:text-[#1f2123] active:scale-[0.94] motion-reduce:active:scale-100"
               >
-                <Plus className="size-3.5" strokeWidth={2.4} />
+                <Plus className="size-4" strokeWidth={2.4} />
               </button>
             ) : null}
           </>
@@ -324,9 +331,9 @@ export function ColorSearch({
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
             aria-label="Search by colour"
-            className="flex items-center active:scale-[0.97] motion-reduce:active:scale-100"
+            className="flex items-center px-0.5 active:scale-[0.97] motion-reduce:active:scale-100"
           >
-            <ColorDotsIcon className="size-[18px]" />
+            <ColorDotsIcon className="size-[18px] sm:size-5" />
           </button>
         )}
       </div>
@@ -363,31 +370,37 @@ export function ColorSearch({
 
               {/* Hex row */}
               <div className="mt-3 flex items-center gap-2">
-                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#e3e5e8] bg-[#fafafa] px-2 py-1.5 focus-within:border-[#c7c7ca] focus-within:bg-white">
-                  <ColorSwatch color={current} size="sm" className="pointer-events-none" />
-                  <input
+                <div className="relative min-w-0 flex-1">
+                  <ColorSwatch
+                    color={current}
+                    size="sm"
+                    className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2"
+                  />
+                  <Input
                     value={hexInput}
                     onChange={(e) => onHexChange(e.target.value)}
                     spellCheck={false}
-                    className="min-w-0 flex-1 bg-transparent font-mono text-[13px] uppercase tracking-tight text-[#1f2123] outline-none"
+                    className="pl-10 font-mono uppercase tracking-tight"
                     placeholder="#000000"
                     aria-label="Hex colour"
                   />
                 </div>
                 {hasEyedropper ? (
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="icon"
                     onClick={useEyedropper}
                     aria-label="Pick from screen"
-                    className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-[#e3e5e8] text-[#707275] transition-colors hover:bg-[#f2f2f3] hover:text-[#1f2123] active:scale-[0.96] motion-reduce:active:scale-100"
+                    className="shrink-0"
                   >
                     <Pipette className="size-3.5" />
-                  </button>
+                  </Button>
                 ) : null}
               </div>
 
               {/* Draft swatches */}
-              <div className="mt-3 flex items-center gap-1.5">
+              <div className="mt-3 flex items-center gap-2 px-0.5">
                 {draft.map((c, i) => (
                   <ColorSwatch
                     key={`${c}-${i}`}
@@ -412,13 +425,14 @@ export function ColorSearch({
             </div>
 
             <div className="border-t border-[#e3e5e8] bg-[#fafafa] px-3 py-2.5">
-              <button
+              <Button
                 type="button"
                 onClick={onSearch}
-                className="flex w-full items-center justify-center rounded-lg bg-[#1f2123] py-2 text-[13px] font-medium tracking-tight text-white transition-[colors,transform] hover:bg-[#2c2f31] active:scale-[0.98] motion-reduce:active:scale-100"
+                size="sm"
+                className="h-8 w-full rounded-xl bg-[#1f2123] text-sm font-medium tracking-tight text-white hover:bg-[#2c2f31]"
               >
                 Search
-              </button>
+              </Button>
             </div>
           </motion.div>
         ) : null}

@@ -17,6 +17,8 @@ type Rect = {
   height: number;
 };
 
+const MIN_RECT_SIZE = 2;
+
 export function AnimatedSelectionHighlight({
   children,
   isDark = false,
@@ -25,6 +27,7 @@ export function AnimatedSelectionHighlight({
   isDark?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
   const [rects, setRects] = useState<Rect[]>([]);
   const [pulses, setPulses] = useState<
     { id: number; x: number; y: number; rects: Rect[] }[]
@@ -47,15 +50,16 @@ export function AnimatedSelectionHighlight({
       return [];
     }
     const range = selection.getRangeAt(0);
-    const clientRects = Array.from(range.getClientRects());
     const containerBox = root.getBoundingClientRect();
-    return clientRects.map((r, i) => ({
-      id: `${Date.now()}-${i}`,
-      top: r.top - containerBox.top,
-      left: r.left - containerBox.left,
-      width: r.width,
-      height: r.height,
-    }));
+    return Array.from(range.getClientRects())
+      .filter((r) => r.width > MIN_RECT_SIZE && r.height > MIN_RECT_SIZE)
+      .map((r, i) => ({
+        id: `${Date.now()}-${i}`,
+        top: r.top - containerBox.top,
+        left: r.left - containerBox.left,
+        width: r.width,
+        height: r.height,
+      }));
   }, []);
 
   useEffect(() => {
@@ -101,6 +105,7 @@ export function AnimatedSelectionHighlight({
       setRects(getRelativeRects(window.getSelection()));
 
     const handlePointerDown = (e: PointerEvent) => {
+      isDraggingRef.current = true;
       setIsDragging(true);
       const b = root.getBoundingClientRect();
       const rx = e.clientX - b.left;
@@ -110,12 +115,13 @@ export function AnimatedSelectionHighlight({
     };
 
     const handlePointerMove = (e: PointerEvent) => {
-      if (!isDragging) return;
+      if (!isDraggingRef.current) return;
       const b = root.getBoundingClientRect();
       setCursorPos({ x: e.clientX - b.left, y: e.clientY - b.top });
     };
 
     const handlePointerUp = (e: PointerEvent) => {
+      isDraggingRef.current = false;
       setIsDragging(false);
       setCursorPos(null);
       const b = root.getBoundingClientRect();
@@ -148,18 +154,25 @@ export function AnimatedSelectionHighlight({
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [getRelativeRects, triggerPulse, isDragging]);
+  }, [getRelativeRects, triggerPulse]);
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative" data-selection-highlight>
       <style>{`
-        .no-native-select::selection,
-        .no-native-select *::selection {
-          background: rgba(255, 255, 255, 0.001) !important;
+        [data-selection-highlight] .no-native-select,
+        [data-selection-highlight] .no-native-select * {
+          -webkit-tap-highlight-color: transparent;
         }
-        .no-native-select::-moz-selection,
-        .no-native-select *::-moz-selection {
-          background: rgba(255, 255, 255, 0.001) !important;
+        [data-selection-highlight] .no-native-select::selection,
+        [data-selection-highlight] .no-native-select *::selection {
+          background: transparent !important;
+          color: inherit !important;
+          -webkit-text-fill-color: inherit;
+        }
+        [data-selection-highlight] .no-native-select::-moz-selection,
+        [data-selection-highlight] .no-native-select *::-moz-selection {
+          background: transparent !important;
+          color: inherit !important;
         }
       `}</style>
 
