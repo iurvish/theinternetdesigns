@@ -247,6 +247,23 @@ function FeedBody({
   const colorPosts = colorReady ? colorResult!.posts : null;
   const refreshing = colorLoading || feedBootstrapping;
 
+  // Arrowing to another post inside the lightbox pulls its shared element out of the
+  // previous card's layout group, which makes that card play its close morph behind
+  // the scrim — visible through the blur. Collapsing card layout transitions to zero
+  // for that one commit hides it; the real close morph is restored a frame later.
+  const [switchingPost, setSwitchingPost] = useState(false);
+  useEffect(() => {
+    if (!switchingPost) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => setSwitchingPost(false));
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [switchingPost]);
+
   const [mediaByPost, setMediaByPost] = useState<Record<string, number>>({});
   const setPostMedia = useCallback((postId: string, idx: number) => {
     setMediaByPost((m) => (m[postId] === idx ? m : { ...m, [postId]: idx }));
@@ -314,6 +331,7 @@ function FeedBody({
                   mediaIndex={mediaByPost[p.id] ?? 0}
                   onMediaIndex={(idx) => setPostMedia(p.id, idx)}
                   suspended={openIndex === i}
+                  instantLayout={switchingPost}
                   getVideoTime={getVideoTime}
                   setVideoTime={setVideoTime}
                 />
@@ -349,7 +367,10 @@ function FeedBody({
             posts={visible}
             index={openIndex}
             initialMediaIndex={mediaByPost[visible[openIndex]?.id] ?? 0}
-            onIndexChange={setOpenIndex}
+            onIndexChange={(i) => {
+              setSwitchingPost(true);
+              setOpenIndex(i);
+            }}
             onMediaIndex={setPostMedia}
             getVideoTime={getVideoTime}
             setVideoTime={setVideoTime}
@@ -615,6 +636,7 @@ function MasonryCard({
   mediaIndex,
   onMediaIndex,
   suspended,
+  instantLayout,
   getVideoTime,
   setVideoTime,
 }: {
@@ -625,6 +647,8 @@ function MasonryCard({
   onMediaIndex: (idx: number) => void;
   /** True while this post is open in the lightbox — pause so it doesn't drift. */
   suspended: boolean;
+  /** Snap layout changes instead of animating — used while the lightbox swaps posts. */
+  instantLayout?: boolean;
   getVideoTime: (id: string) => number | undefined;
   setVideoTime: (id: string, t: number) => void;
 }) {
@@ -687,7 +711,11 @@ function MasonryCard({
     <motion.div
       ref={viewportRef}
       layoutId={`post-${post.id}`}
-      transition={{ type: "spring", duration: 0.4, bounce: 0.08 }}
+      transition={
+        instantLayout
+          ? { duration: 0 }
+          : { type: "spring", duration: 0.4, bounce: 0.08 }
+      }
       role="button"
       tabIndex={0}
       onClick={() => onOpen(index)}

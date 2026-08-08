@@ -281,7 +281,7 @@ export function PostOverlay({
     <div className="fixed inset-0 z-[100] flex flex-col md:block">
       {/* Backdrop */}
       <motion.div
-        className="absolute inset-0 bg-black/30 backdrop-blur-[8px]"
+        className="absolute inset-0 bg-black/30 backdrop-blur-[16px]"
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
         transition={closing ? CLOSE_FADE : FADE}
@@ -408,7 +408,9 @@ export function PostOverlay({
             <motion.div
               key={post.id}
               layoutId={`post-${post.id}`}
-              transition={OPEN_MORPH}
+              // Only the initial open earns the morph; re-anchoring to a post you
+              // arrowed to happens behind the scrim and should be instant.
+              transition={switching ? { duration: 0 } : OPEN_MORPH}
               onLayoutAnimationComplete={phase === "in" ? () => setPhase("browse") : undefined}
               className="relative size-full overflow-hidden rounded-[12px]"
             >
