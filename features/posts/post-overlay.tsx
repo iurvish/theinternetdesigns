@@ -68,8 +68,10 @@ export function PostOverlay({
   // spamming it — snap instantly instead of animating (a held key that animates
   // just looks laggy). Falls back to the smooth slide for deliberate single steps.
   const [fastNav, setFastNav] = useState(false);
+  const [navDir, setNavDir] = useState(1);
   const lastNavRef = useRef(0);
   const navResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isMobile, setIsMobile] = useState(
     () =>
       typeof window !== "undefined"
@@ -178,6 +180,7 @@ export function PostOverlay({
     (d: number) => {
       const nextI = mediaIndex + d;
       if (nextI < 0 || nextI >= mediaCount) return;
+      setNavDir(d);
       // Steps closer together than ~90ms (a held key repeats every ~30–50ms) count
       // as rapid nav → snap. A short timer restores the slide once the burst ends.
       const now = performance.now();
@@ -188,6 +191,24 @@ export function PostOverlay({
       setMediaIndex(nextI);
     },
     [mediaIndex, mediaCount],
+  );
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const start = touchStartRef.current;
+      if (!start) return;
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      touchStartRef.current = null;
+      if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      goMedia(dx < 0 ? 1 : -1);
+    },
+    [goMedia],
   );
 
   const goPost = useCallback(
