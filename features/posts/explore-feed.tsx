@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Play,
 } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
@@ -514,7 +513,7 @@ function MasonryCard({
         ]
       : [];
   const mediaCount = media.length;
-  const isGallery = !post.hasVideo && mediaCount > 1;
+  const isGallery = mediaCount > 1;
   // The playable file for a video post (falls back to a gif-kind clip).
   const videoItem = post.hasVideo
     ? media.find((m) => m.kind === "video" || m.kind === "gif")
@@ -556,7 +555,10 @@ function MasonryCard({
       }}
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
-      className="group relative mb-2.5 block cursor-pointer break-inside-avoid overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]"
+      className={cn(
+        "group relative mb-2.5 block cursor-pointer break-inside-avoid overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]",
+        suspended && "z-[60]",
+      )}
       style={{ boxShadow: "none" }}
     >
       <div className="relative w-full" style={{ aspectRatio }}>
@@ -606,12 +608,8 @@ function MasonryCard({
         <ArrowUpRight className="size-4.5 text-white" strokeWidth={2.2} />
       </span>
 
-      {/* top-right: video badge, or hover media navigator for galleries */}
-      {post.hasVideo ? (
-        <span className="pointer-events-none absolute right-2.5 top-2.5 flex items-center gap-1 rounded-3xl bg-[#c4c4c5]/65 px-3 py-1.5 text-sm font-medium text-white shadow-[inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]">
-          <Play className="size-3.5 fill-white" />
-        </span>
-      ) : isGallery ? (
+      {/* top-right: hover media navigator for multi-image / video galleries */}
+      {isGallery ? (
         <MediaNav
           count={mediaCount}
           index={mediaIdx}
@@ -723,7 +721,7 @@ function MediaNav({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className="pointer-events-auto absolute right-2.5 top-2.5 flex items-center rounded-full bg-[#c4c4c5]/65 p-0.5 text-white shadow-[0_0_0_0.3px_rgba(0,0,0,0.06),0_3px_6px_-2px_rgba(0,0,0,0.04),inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]"
+      className="pointer-events-auto absolute right-2.5 top-2.5 flex items-center rounded-full bg-[#c4c4c5]/65 p-0.5 px-1.5 text-white shadow-[0_0_0_0.3px_rgba(0,0,0,0.06),0_3px_6px_-2px_rgba(0,0,0,0.04),inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]"
     >
       <NavChevron
         side="left"

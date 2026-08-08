@@ -224,10 +224,10 @@ export function PostOverlay({
   }
 
   const overlay = (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-[100]">
       {/* Backdrop */}
       <motion.div
-        className="absolute inset-0 bg-black/30 backdrop-blur-[3px]"
+        className="absolute inset-0 bg-black/30 backdrop-blur-[8px]"
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
         transition={closing ? CLOSE_FADE : FADE}
