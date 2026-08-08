@@ -21,7 +21,7 @@ const PEEK_OFFSET = 1.06; // centre-to-centre distance of an adjacent slide, × 
 const PEEK_SCALE = 0.76; // neighbours shrink so the centre slide is the focus
 
 const FRAME_SHADOW =
-  "0px 6px 38px 0px rgba(0,0,0,0.18), 0px 6px 24px 0px rgba(0,0,0,0.12), 0px 1px 1px 0px rgba(0,0,0,0.2)";
+  "0 4px 20px -2px rgba(0,0,0,0.10), 0 2px 6px -1px rgba(0,0,0,0.06)";
 
 // Backdrop / ambient fade on close is stretched to ~match the reverse morph, so
 // the grid card lands exactly as the scrim clears — one unified exit, never a
@@ -369,7 +369,6 @@ export function PostOverlay({
               transition={OPEN_MORPH}
               onLayoutAnimationComplete={phase === "in" ? () => setPhase("browse") : undefined}
               className="relative size-full overflow-hidden rounded-[12px]"
-              style={{ boxShadow: FRAME_SHADOW }}
             >
               <StageImage
                 key={media[mediaIndex]?.url}

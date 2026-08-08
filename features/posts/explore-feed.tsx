@@ -1,9 +1,23 @@
 "use client";
 
-import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Image from "next/image";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Play } from "lucide-react";
+import {
+  ArrowUpRight,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+} from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
@@ -44,7 +58,7 @@ export function ExploreFeed({
       {/* Filter toolbar — rendered immediately (outside the grid's Suspense) so it
           never blanks out on refresh. Elevated (relative z-30) so its dropdowns
           paint above the grid; drop shadow gives the bar its crisp float. */}
-      <div className="relative z-30 flex w-full flex-col items-start border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff,0_8px_20px_-12px_rgba(0,0,0,0.12)]">
+      <div className="relative z-30 flex w-full flex-col items-start border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] ">
         {/* Toolbar row. On mobile it wraps to two rows — colour search + sort on
             top, the category rail full-width below — so nothing gets crushed.
             From `sm` up it collapses back to the original single, divider-
@@ -112,8 +126,10 @@ function FeedBody({
   // we can tell fresh results from a previous search's (avoids showing stale posts
   // during a re-fetch) and only ever setState inside the async callback.
   const colorKey = colors.join(",");
-  const [colorResult, setColorResult] =
-    useState<{ key: string; posts: PostListItem[] } | null>(null);
+  const [colorResult, setColorResult] = useState<{
+    key: string;
+    posts: PostListItem[];
+  } | null>(null);
 
   useEffect(() => {
     if (colors.length === 0) return;
@@ -149,7 +165,10 @@ function FeedBody({
   // and the lightbox — opening or closing never restarts it. The card pauses while
   // its post is open in the lightbox (below) so the two never drift apart.
   const videoTimeRef = useRef<Record<string, number>>({});
-  const getVideoTime = useCallback((id: string) => videoTimeRef.current[id], []);
+  const getVideoTime = useCallback(
+    (id: string) => videoTimeRef.current[id],
+    [],
+  );
   const setVideoTime = useCallback((id: string, t: number) => {
     videoTimeRef.current[id] = t;
   }, []);
@@ -311,7 +330,11 @@ function PillRail({
         ref={scrollRef}
         className="flex items-center gap-2 overflow-x-auto py-2.5 [scrollbar-width:none] sm:gap-3 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
       >
-        <Pill label="All" active={active === "all"} onClick={() => onSelect("all")} />
+        <Pill
+          label="All"
+          active={active === "all"}
+          onClick={() => onSelect("all")}
+        />
         {categories.map((c) => (
           <Pill
             key={c.slug}
@@ -480,7 +503,15 @@ function MasonryCard({
   const media = post.images.length
     ? post.images
     : post.thumbnail
-      ? [{ url: post.thumbnail.url, posterUrl: null, kind: "image" as const, width: post.thumbnail.width, height: post.thumbnail.height }]
+      ? [
+          {
+            url: post.thumbnail.url,
+            posterUrl: null,
+            kind: "image" as const,
+            width: post.thumbnail.width,
+            height: post.thumbnail.height,
+          },
+        ]
       : [];
   const mediaCount = media.length;
   const isGallery = !post.hasVideo && mediaCount > 1;
@@ -490,7 +521,10 @@ function MasonryCard({
     : undefined;
 
   // Clamp defensively — the shared map could hold a stale index after a filter change.
-  const mediaIdx = Math.min(Math.max(mediaIndex, 0), Math.max(mediaCount - 1, 0));
+  const mediaIdx = Math.min(
+    Math.max(mediaIndex, 0),
+    Math.max(mediaCount - 1, 0),
+  );
   const [hovered, setHovered] = useState(false);
   // Track the direction of the last page so the crossfade drifts the right way.
   const [dir, setDir] = useState(0);
@@ -503,7 +537,9 @@ function MasonryCard({
   };
 
   const activeSrc =
-    mediaIdx === 0 ? (post.thumbnail?.url ?? media[0]?.url) : media[mediaIdx]?.url;
+    mediaIdx === 0
+      ? (post.thumbnail?.url ?? media[0]?.url)
+      : media[mediaIdx]?.url;
 
   return (
     <motion.div
@@ -521,6 +557,7 @@ function MasonryCard({
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
       className="group relative mb-2.5 block cursor-pointer break-inside-avoid overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]"
+      style={{ boxShadow: "none" }}
     >
       <div className="relative w-full" style={{ aspectRatio }}>
         {activeSrc ? (
@@ -628,7 +665,11 @@ function CardVideo({
       // Resume from the shared position (set by the lightbox, or a prior hover) so
       // playback carries over instead of restarting.
       const saved = getVideoTime(postId);
-      if (saved != null && Number.isFinite(saved) && Math.abs(v.currentTime - saved) > 0.25) {
+      if (
+        saved != null &&
+        Number.isFinite(saved) &&
+        Math.abs(v.currentTime - saved) > 0.25
+      ) {
         try {
           v.currentTime = saved;
         } catch {
@@ -684,13 +725,23 @@ function MediaNav({
       onClick={(e) => e.stopPropagation()}
       className="pointer-events-auto absolute right-2.5 top-2.5 flex items-center rounded-full bg-[#c4c4c5]/65 p-0.5 text-white shadow-[0_0_0_0.3px_rgba(0,0,0,0.06),0_3px_6px_-2px_rgba(0,0,0,0.04),inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]"
     >
-      <NavChevron side="left" show={hovered} disabled={index === 0} onClick={onPrev} />
+      <NavChevron
+        side="left"
+        show={hovered}
+        disabled={index === 0}
+        onClick={onPrev}
+      />
 
       <span className="min-w-5 px-1 text-center text-[15px] font-medium leading-none tabular-nums tracking-tight">
         {hovered ? index + 1 : count}
       </span>
 
-      <NavChevron side="right" show={hovered} disabled={index === count - 1} onClick={onNext} />
+      <NavChevron
+        side="right"
+        show={hovered}
+        disabled={index === count - 1}
+        onClick={onNext}
+      />
     </div>
   );
 }
