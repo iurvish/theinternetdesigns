@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
 import type { PostListItem } from "./queries";
+import { cn } from "@/lib/utils";
 
 /**
  * Motion vocabulary — pulled from the repo's animation skill so every surface
@@ -69,11 +70,25 @@ export function PostOverlay({
   const [fastNav, setFastNav] = useState(false);
   const lastNavRef = useRef(0);
   const navResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== "undefined"
+        ? window.matchMedia("(max-width: 767px)").matches
+        : false,
+  );
   const [stage, setStage] = useState(() => ({
-    w: typeof window !== "undefined" ? Math.max(320, window.innerWidth - 340) : 1200,
+    w: typeof window !== "undefined" ? window.innerWidth : 1200,
     h: typeof window !== "undefined" ? window.innerHeight : 800,
   }));
   const stageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   // Reset to the first media the instant the active post changes — during render
   // (guarded) so there's no stale-index flash.
@@ -215,16 +230,16 @@ export function PostOverlay({
   // stage; every slide shares this frame so the carousel reads uniformly.
   const aspect =
     media[0]?.width && media[0]?.height ? media[0].width / media[0].height : 4 / 3;
-  let frameW = stage.w * 0.58;
+  let frameW = stage.w * (isMobile ? 0.9 : 0.58);
   let frameH = frameW / aspect;
-  const maxH = stage.h * 0.84;
+  const maxH = stage.h * (isMobile ? 0.92 : 0.84);
   if (frameH > maxH) {
     frameH = maxH;
     frameW = frameH * aspect;
   }
 
   const overlay = (
-    <div className="fixed inset-0 z-[100]">
+    <div className="fixed inset-0 z-[100] flex flex-col md:block">
       {/* Backdrop */}
       <motion.div
         className="absolute inset-0 bg-black/30 backdrop-blur-[8px]"
@@ -249,7 +264,7 @@ export function PostOverlay({
 
       {/* Top-left controls: close + prev/next post */}
       <motion.div
-        className="absolute left-5 top-5 z-40 flex items-center gap-2"
+        className="absolute left-3 top-3 z-40 flex items-center gap-2 sm:left-5 sm:top-5"
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
         transition={FADE}
@@ -269,13 +284,12 @@ export function PostOverlay({
         </ControlButton>
       </motion.div>
 
-      {/* Carousel stage. Two layers: a cohesive filmstrip that the user browses
-          (every slide slides & scales together), and a hidden hero behind it that
-          carries the shared-element layoutId so open/close morph to/from the grid
-          card. Clipped to the area left of the panel. */}
+      {/* Carousel stage. On mobile it fills the top flex region; on desktop it
+          sits left of the info sidebar. Two layers: a filmstrip the user browses,
+          and a hidden hero behind it that carries the shared-element layoutId. */}
       <div
         ref={stageRef}
-        className="pointer-events-none absolute inset-y-0 left-0 right-0 overflow-hidden md:right-[340px]"
+        className="pointer-events-none relative z-10 min-h-0 flex-1 overflow-hidden md:absolute md:inset-y-0 md:left-0 md:right-[340px]"
       >
         {/* Browse layer — the filmstrip. All visible slides animate to their new
             offset (translate + scale) together when the media index changes, so
@@ -307,7 +321,7 @@ export function PostOverlay({
                   ? phase === "in"
                     ? 0
                     : 1
-                  : switching || !peeksIn
+                  : isMobile || switching || !peeksIn
                     ? 0
                     : 1;
                 return (
@@ -381,75 +395,23 @@ export function PostOverlay({
         ) : null}
       </div>
 
-      {/* Info panel */}
+      {/* Info — bottom drawer on mobile, right sidebar on desktop */}
       <motion.aside
-        className="absolute inset-y-0 right-0 z-30 flex w-[340px] max-w-[85vw] flex-col gap-4 overflow-y-auto border-l border-[#e3e5e8] bg-[#f7f7f7] p-4"
-        initial={{ x: 360, opacity: 0 }}
-        animate={{ x: closing ? 360 : 0, opacity: closing ? 0 : 1 }}
+        className={cn(
+          "z-30 flex shrink-0 flex-col gap-4 overflow-y-auto bg-[#f7f7f7] p-4",
+          "max-h-[42vh] rounded-t-2xl border-t border-[#e3e5e8] shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]",
+          "md:absolute md:inset-y-0 md:right-0 md:w-[340px] md:max-h-none md:rounded-none md:border-l md:border-t-0 md:shadow-none",
+        )}
+        initial={isMobile ? { y: "100%", opacity: 0 } : { x: 360, opacity: 0 }}
+        animate={
+          isMobile
+            ? { y: closing ? "100%" : 0, opacity: closing ? 0 : 1 }
+            : { x: closing ? 360 : 0, opacity: closing ? 0 : 1 }
+        }
         transition={DRAWER}
       >
-        <motion.div
-          key={post.id}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={FADE}
-          className="flex flex-col gap-3.5"
-        >
-          <Link href={`/creator/${post.creator.username}`} className="flex items-center gap-3">
-            {post.creator.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={post.creator.avatarUrl}
-                alt={post.creator.displayName}
-                className="size-[42px] shrink-0 rounded-full object-cover"
-                draggable={false}
-              />
-            ) : (
-              <span className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-[#e3e5e8] text-sm font-medium text-[#707275]">
-                {post.creator.displayName?.[0] ?? "?"}
-              </span>
-            )}
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-base font-semibold tracking-tight text-[#1f2123]">
-                {post.creator.displayName}
-              </span>
-              <span className="truncate text-base tracking-tight text-[#707275]">
-                @{post.creator.username}
-              </span>
-            </div>
-          </Link>
-
-          {post.caption ? (
-            <p className="whitespace-pre-wrap text-base leading-5 tracking-tight text-[#222426]">
-              {post.caption}
-            </p>
-          ) : null}
-        </motion.div>
-
-        <div className="flex flex-col">
-          <Row label="Source">
-            <Link
-              href={post.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 text-black hover:underline"
-            >
-              X <ExternalLink className="size-3.5" />
-            </Link>
-          </Row>
-          {post.categories.length > 0 ? (
-            <Row label="Category">
-              <span className="text-black">{post.categories[0].name}</span>
-            </Row>
-          ) : null}
-          {post.categories.length > 1 ? (
-            <Row label="Tags">
-              <span className="text-right text-black">
-                {post.categories.slice(1).map((c) => c.name).join(", ")}
-              </span>
-            </Row>
-          ) : null}
-        </div>
+        <div aria-hidden className="mx-auto h-1 w-10 shrink-0 rounded-full bg-[#d1d3d6] md:hidden" />
+        <PostInfoContent post={post} />
       </motion.aside>
     </div>
   );
@@ -570,6 +532,75 @@ function StageImage({
         style={{ opacity: loaded ? 1 : 0 }}
         className="absolute inset-0 size-full select-none object-cover transition-opacity duration-300 ease-out"
       />
+    </>
+  );
+}
+
+function PostInfoContent({ post }: { post: PostListItem }) {
+  return (
+    <>
+      <motion.div
+        key={post.id}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={FADE}
+        className="flex flex-col gap-3.5"
+      >
+        <Link href={`/creator/${post.creator.username}`} className="flex items-center gap-3">
+          {post.creator.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={post.creator.avatarUrl}
+              alt={post.creator.displayName}
+              className="size-[42px] shrink-0 rounded-full object-cover"
+              draggable={false}
+            />
+          ) : (
+            <span className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-[#e3e5e8] text-sm font-medium text-[#707275]">
+              {post.creator.displayName?.[0] ?? "?"}
+            </span>
+          )}
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="truncate text-base font-semibold tracking-tight text-[#1f2123]">
+              {post.creator.displayName}
+            </span>
+            <span className="truncate text-base tracking-tight text-[#707275]">
+              @{post.creator.username}
+            </span>
+          </div>
+        </Link>
+
+        {post.caption ? (
+          <p className="whitespace-pre-wrap text-base leading-5 tracking-tight text-[#222426]">
+            {post.caption}
+          </p>
+        ) : null}
+      </motion.div>
+
+      <div className="flex flex-col">
+        <Row label="Source">
+          <Link
+            href={post.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 text-black hover:underline"
+          >
+            X <ExternalLink className="size-3.5" />
+          </Link>
+        </Row>
+        {post.categories.length > 0 ? (
+          <Row label="Category">
+            <span className="text-black">{post.categories[0].name}</span>
+          </Row>
+        ) : null}
+        {post.categories.length > 1 ? (
+          <Row label="Tags">
+            <span className="text-right text-black">
+              {post.categories.slice(1).map((c) => c.name).join(", ")}
+            </span>
+          </Row>
+        ) : null}
+      </div>
     </>
   );
 }
