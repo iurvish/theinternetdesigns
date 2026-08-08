@@ -24,6 +24,10 @@ import { ColorSearch } from "./color-search";
 import { searchByColorsAction } from "./color-search-action";
 import { loadFeedPageAction } from "./feed-actions";
 import { SetupRequired } from "@/components/setup-required";
+import {
+  initTiksOnFirstGesture,
+  playOverlayOpen,
+} from "@/lib/tiks-sounds";
 
 export type PostsResult = { posts: PostListItem[]; error: string | null };
 
@@ -127,6 +131,10 @@ function FeedBody({
 }) {
   const { posts: initialPosts, error } = use(postsPromise);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    initTiksOnFirstGesture();
+  }, []);
 
   // Paginated feed — first page streams in via Suspense; further pages append as
   // the sentinel approaches the viewport. Category/sort resets to page 0.
@@ -327,7 +335,10 @@ function FeedBody({
                   key={p.id}
                   post={p}
                   index={i}
-                  onOpen={setOpenIndex}
+                  onOpen={(i) => {
+                    playOverlayOpen();
+                    setOpenIndex(i);
+                  }}
                   mediaIndex={mediaByPost[p.id] ?? 0}
                   onMediaIndex={(idx) => setPostMedia(p.id, idx)}
                   suspended={openIndex === i}

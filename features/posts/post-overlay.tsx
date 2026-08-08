@@ -7,6 +7,11 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
+import {
+  playMediaSwitch,
+  playOverlayClose,
+  playPostSwitch,
+} from "@/lib/tiks-sounds";
 
 /**
  * Motion vocabulary — pulled from the repo's animation skill so every surface
@@ -165,6 +170,7 @@ export function PostOverlay({
   // The parent resets it back to the first image once the exit finishes.
   const requestClose = useCallback(() => {
     if (post) onMediaIndex?.(post.id, mediaIndex);
+    playOverlayClose();
     setClosing(true);
   }, [post, mediaIndex, onMediaIndex]);
 
@@ -189,6 +195,7 @@ export function PostOverlay({
       if (navResetRef.current) clearTimeout(navResetRef.current);
       navResetRef.current = setTimeout(() => setFastNav(false), 110);
       setMediaIndex(nextI);
+      playMediaSwitch();
     },
     [mediaIndex, mediaCount],
   );
@@ -215,6 +222,7 @@ export function PostOverlay({
     (d: number) => {
       const nextI = index + d;
       if (nextI < 0 || nextI >= posts.length) return;
+      playPostSwitch();
       onIndexChange(nextI);
     },
     [index, posts.length, onIndexChange],
@@ -351,7 +359,7 @@ export function PostOverlay({
                     }
                     style={{ width: frameW, height: frameH, marginLeft: -frameW / 2, marginTop: -frameH / 2, zIndex }}
                     onClick={() => {
-                      if (!isActive) setMediaIndex(i);
+                      if (!isActive) goMedia(i - mediaIndex);
                     }}
                     onTouchStart={mediaCount > 1 ? handleTouchStart : undefined}
                     onTouchEnd={mediaCount > 1 ? handleTouchEnd : undefined}
