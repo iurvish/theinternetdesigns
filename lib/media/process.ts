@@ -3,7 +3,10 @@ import sharp from "sharp";
 import { uploadToR2 } from "@/lib/r2/upload";
 import { extractPalette, type PaletteColor } from "./colors";
 import { firstFrameJpeg } from "./video-frame";
+import { reencodeVideoToMp4 } from "./reencode-video";
 
+/** Lightbox / detail still — smaller than archive original, sharper than feed thumb. */
+const MEDIUM_WIDTH = 1280;
 const MAX_WIDTH = 1920;
 const THUMB_WIDTH = 640;
 
@@ -22,6 +25,7 @@ async function download(url: string): Promise<{ buffer: Buffer; contentType: str
 
 export type ProcessedImage = {
   originalUrl: string;
+  mediumUrl: string;
   thumbnailUrl: string;
   width: number | null;
   height: number | null;
@@ -36,11 +40,16 @@ export async function processImage(
   const img = sharp(buffer, { failOn: "none" });
   const meta = await img.metadata();
 
-  const [fullAvif, thumbAvif, colors] = await Promise.all([
+  const [fullAvif, mediumAvif, thumbAvif, colors] = await Promise.all([
     sharp(buffer, { failOn: "none" })
       .rotate()
       .resize({ width: MAX_WIDTH, withoutEnlargement: true })
       .avif({ quality: 70, effort: 4 })
+      .toBuffer(),
+    sharp(buffer, { failOn: "none" })
+      .rotate()
+      .resize({ width: MEDIUM_WIDTH, withoutEnlargement: true })
+      .avif({ quality: 65, effort: 4 })
       .toBuffer(),
     sharp(buffer, { failOn: "none" })
       .rotate()
@@ -50,10 +59,15 @@ export async function processImage(
     extractPalette(buffer),
   ]);
 
-  const [originalUrl, thumbnailUrl] = await Promise.all([
+  const [originalUrl, mediumUrl, thumbnailUrl] = await Promise.all([
     uploadToR2({
       key: `${keyPrefix}/original.avif`,
       body: fullAvif,
+      contentType: "image/avif",
+    }),
+    uploadToR2({
+      key: `${keyPrefix}/medium.avif`,
+      body: mediumAvif,
       contentType: "image/avif",
     }),
     uploadToR2({
@@ -65,6 +79,7 @@ export async function processImage(
 
   return {
     originalUrl,
+    mediumUrl,
     thumbnailUrl,
     width: meta.width ?? null,
     height: meta.height ?? null,
@@ -91,18 +106,27 @@ export async function processVideo(
       `Expected a video, downloaded ${baseType || "unknown"} from ${sourceUrl}. Aborting to avoid uploading a non-video file as mp4.`,
     );
   }
-  const finalType = looksMp4 ? "video/mp4" : baseType;
+
+  // Re-encode to lean H.264 once at publish — biggest R2 storage/Class B win.
+  // Fall back to source bytes only if ffmpeg is unavailable or encode fails.
+  const encoded = await reencodeVideoToMp4(buffer);
+  const delivery = encoded ?? buffer;
+  if (!encoded) {
+    console.warn(
+      "[processVideo] re-encode failed or ffmpeg missing; uploading source bytes",
+      sourceUrl,
+    );
+  }
+
   const originalUrl = await uploadToR2({
     key: `${keyPrefix}/video.mp4`,
-    body: buffer,
-    contentType: finalType,
+    body: delivery,
+    contentType: "video/mp4",
   });
 
-  // Prefer the video's real first frame for both the poster still and its colour
-  // palette (we already have the video bytes); fall back to X's supplied poster
-  // thumbnail — which is often a different, unrepresentative frame — if frame
-  // extraction isn't available.
-  let posterBuffer: Buffer | null = await firstFrameJpeg(buffer);
+  // Prefer the video's real first frame for poster + palette; fall back to the
+  // platform poster if frame extraction isn't available.
+  let posterBuffer: Buffer | null = await firstFrameJpeg(delivery);
   if (!posterBuffer && posterSourceUrl) {
     try {
       posterBuffer = (await download(posterSourceUrl)).buffer;

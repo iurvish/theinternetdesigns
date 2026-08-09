@@ -618,7 +618,8 @@ function toDraft(
     interaction: null,
     featured: false,
     hiddenGem: false,
-    autoplayInFeed: true,
+    // Default off — autoplay × many users = full video downloads (R2 Class B).
+    autoplayInFeed: false,
     selected: true,
   };
 }
