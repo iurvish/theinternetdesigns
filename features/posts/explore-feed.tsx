@@ -16,7 +16,7 @@ import {
   Check,
   ChevronDown,
 } from "lucide-react";
-import type { PostListItem } from "./queries";
+import type { PostListItem, FeedSort } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
 import { ColorSearch } from "./color-search";
@@ -29,20 +29,25 @@ import { loadFeedPageAction } from "./feed-actions";
 import { SetupRequired } from "@/components/setup-required";
 import {
   initTiksOnFirstGesture,
+  playMediaSwitch,
   playOverlayOpen,
 } from "@/lib/tiks-sounds";
 
 export type PostsResult = { posts: PostListItem[]; error: string | null };
 
 type Category = { slug: string; name: string };
-type SortKey = "recent" | "oldest";
+type SortKey = FeedSort;
 
 const FEED_PAGE_SIZE = 24;
 
 const SORT_LABELS: Record<SortKey, string> = {
   recent: "Recently",
+  hidden_gems: "Hidden Gems",
+  featured: "Featured",
   oldest: "Oldest",
 };
+
+const SORT_ORDER: SortKey[] = ["recent", "hidden_gems", "featured", "oldest"];
 
 /**
  * The public "The Internet Designs" explorer — a hero heading, a category
@@ -555,7 +560,7 @@ function SortMenu({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "flex w-[169px] items-center justify-between overflow-hidden rounded-[22px] bg-[#f9f9fa] p-2.5 text-sm tracking-[-0.015em] text-[#1f2123] sm:w-30",
+          "flex w-[169px] items-center justify-between overflow-hidden rounded-[22px] bg-[#f9f9fa] p-2.5 text-sm tracking-[-0.015em] text-[#1f2123] sm:w-[7.5rem]",
           SORT_TRIGGER_SHADOW,
         )}
       >
@@ -576,11 +581,11 @@ function SortMenu({
             transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top right" }}
             className={cn(
-              "absolute right-0 top-full z-50 mt-1.5 w-[169px] overflow-hidden rounded-xl bg-white p-1 sm:w-30",
+              "absolute right-0 top-full z-50 mt-1.5 w-[169px] overflow-hidden rounded-xl bg-white p-1 sm:w-[7.5rem]",
               POPOVER_SHADOW,
             )}
           >
-            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => {
+            {(SORT_ORDER).map((k) => {
               const active = value === k;
               return (
                 <button
@@ -726,6 +731,7 @@ function MasonryCard({
     if (next < 0 || next >= mediaCount) return;
     setDir(d);
     onMediaIndex(next);
+    playMediaSwitch();
   };
 
   const activeSrc =

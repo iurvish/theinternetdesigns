@@ -58,6 +58,8 @@ export type UpdatePostInput = {
   caption: string;
   published: boolean;
   autoplayInFeed: boolean;
+  featured: boolean;
+  hiddenGem: boolean;
   categoryIds: string[];
   /** Admin-edited colour palettes, keyed by media id. */
   mediaColors?: { mediaId: string; colors: PaletteColor[] }[];
@@ -74,6 +76,8 @@ export async function updatePost(input: UpdatePostInput): Promise<ActionResult> 
           caption: input.caption.trim() || null,
           published: input.published,
           autoplayInFeed: input.autoplayInFeed,
+          featured: input.featured,
+          hiddenGem: input.hiddenGem,
           updatedAt: new Date(),
         })
         .where(eq(posts.id, input.postId));

@@ -20,6 +20,8 @@ export function EditPostForm({
   initialCaption,
   initialPublished,
   initialAutoplayInFeed,
+  initialFeatured,
+  initialHiddenGem,
   hasVideo,
   initialCategoryIds,
   categories,
@@ -30,6 +32,8 @@ export function EditPostForm({
   initialCaption: string;
   initialPublished: boolean;
   initialAutoplayInFeed: boolean;
+  initialFeatured: boolean;
+  initialHiddenGem: boolean;
   hasVideo: boolean;
   initialCategoryIds: string[];
   categories: Category[];
@@ -40,6 +44,8 @@ export function EditPostForm({
   const [caption, setCaption] = useState(initialCaption);
   const [published, setPublished] = useState(initialPublished);
   const [autoplayInFeed, setAutoplayInFeed] = useState(initialAutoplayInFeed);
+  const [featured, setFeatured] = useState(initialFeatured);
+  const [hiddenGem, setHiddenGem] = useState(initialHiddenGem);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialCategoryIds));
   const [palettes, setPalettes] = useState<Record<string, PaletteColor[]>>(() =>
     Object.fromEntries(media.map((m) => [m.id, m.colors])),
@@ -63,6 +69,8 @@ export function EditPostForm({
         caption,
         published,
         autoplayInFeed,
+        featured,
+        hiddenGem,
         categoryIds: Array.from(selected),
         mediaColors: media.map((m) => ({
           mediaId: m.id,
@@ -135,6 +143,31 @@ export function EditPostForm({
           />
           Published (visible on the public site)
         </label>
+
+        <div className="grid gap-2">
+          <Label>Feed placement</Label>
+          <p className="text-xs text-muted-foreground">
+            Optional — a post can appear in both Featured and Hidden Gems.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={featured}
+                onChange={(e) => setFeatured(e.target.checked)}
+              />
+              Featured
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={hiddenGem}
+                onChange={(e) => setHiddenGem(e.target.checked)}
+              />
+              Hidden gem
+            </label>
+          </div>
+        </div>
 
         {hasVideo ? (
           <label className="flex items-center gap-2 text-sm">

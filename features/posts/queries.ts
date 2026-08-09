@@ -9,6 +9,8 @@ import {
 } from "@/lib/media/color-utils";
 import type { PaletteColor } from "@/lib/media/colors";
 
+export type FeedSort = "recent" | "oldest" | "featured" | "hidden_gems";
+
 export type PostListItem = {
   id: string;
   title: string | null;
@@ -133,12 +135,24 @@ export async function getRecentPosts(
     limit?: number;
     offset?: number;
     category?: string | null;
-    sort?: "recent" | "oldest";
+    sort?: FeedSort;
   } = {},
 ) {
   const limit = opts.limit ?? 24;
   const offset = opts.offset ?? 0;
-  const sortDir = opts.sort === "oldest" ? asc : desc;
+  const sort = opts.sort ?? "recent";
+  const sortDir = sort === "oldest" ? asc : desc;
+
+  const flagFilter =
+    sort === "featured"
+      ? eq(posts.featured, true)
+      : sort === "hidden_gems"
+        ? eq(posts.hiddenGem, true)
+        : undefined;
+
+  const baseWhere = flagFilter
+    ? and(eq(posts.published, true), flagFilter)
+    : eq(posts.published, true);
 
   let rows: (typeof posts.$inferSelect)[];
   if (opts.category && opts.category !== "all") {
@@ -147,7 +161,7 @@ export async function getRecentPosts(
       .from(posts)
       .innerJoin(postCategories, eq(postCategories.postId, posts.id))
       .innerJoin(categories, eq(categories.id, postCategories.categoryId))
-      .where(and(eq(posts.published, true), eq(categories.slug, opts.category)))
+      .where(and(baseWhere, eq(categories.slug, opts.category)))
       .orderBy(sortDir(posts.publishedAt), sortDir(posts.createdAt))
       .limit(limit)
       .offset(offset)
@@ -156,7 +170,7 @@ export async function getRecentPosts(
     rows = await db
       .select()
       .from(posts)
-      .where(eq(posts.published, true))
+      .where(baseWhere)
       .orderBy(sortDir(posts.publishedAt), sortDir(posts.createdAt))
       .limit(limit)
       .offset(offset);

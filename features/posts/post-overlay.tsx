@@ -7,7 +7,7 @@ import Link from "next/link";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
-import { OverlayMediaNav } from "./media-nav-pill";
+import { OverlayMediaNav, overlayNavLabels } from "./media-nav-pill";
 import {
   playMediaSwitch,
   playOverlayClose,
@@ -295,6 +295,11 @@ export function PostOverlay({
   }
   const peekOffset = isMobile ? PEEK_OFFSET_MOBILE : PEEK_OFFSET;
 
+  const mediaLabel = overlayNavLabels({
+    mediaIndex,
+    mediaCount,
+  });
+
   const overlay = (
     <div className="fixed inset-0 z-[100] flex flex-col md:block">
       {/* Backdrop */}
@@ -447,7 +452,7 @@ export function PostOverlay({
             ends — same rule as the ← → keys. */}
         {!closing && phase === "browse" ? (
           <motion.div
-            className="pointer-events-auto absolute inset-x-0 bottom-4 z-40 flex items-center justify-center gap-3 sm:bottom-5"
+            className="pointer-events-auto absolute inset-x-0 bottom-4 z-40 flex items-center justify-center sm:bottom-5"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={FADE}
@@ -456,7 +461,7 @@ export function PostOverlay({
               shake={navShake}
               atStart={atStart}
               atEnd={atEnd}
-              label={mediaCount > 1 ? String(mediaIndex + 1) : null}
+              mediaLabel={mediaLabel}
               onBack={goBack}
               onForward={goForward}
             />
@@ -479,7 +484,7 @@ export function PostOverlay({
         }
         transition={DRAWER}
       >
-        <PostInfoContent post={post} compact={isMobile} />
+        <PostInfoContent post={post} compact={isMobile} onClose={requestClose} />
       </motion.aside>
     </div>
   );
@@ -607,15 +612,15 @@ function StageImage({
 function PostInfoContent({
   post,
   compact = false,
+  onClose,
 }: {
   post: PostListItem;
   compact?: boolean;
+  onClose?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const hasMore =
-    Boolean(post.caption) ||
-    post.categories.length > 0 ||
-    Boolean(post.sourceUrl);
+  const hasMeta = post.categories.length > 0 || Boolean(post.sourceUrl);
+  const hasDetails = Boolean(post.caption) || hasMeta;
 
   useEffect(() => {
     setExpanded(false);
@@ -748,7 +753,14 @@ function PostInfoContent({
         expanded && "max-h-[46vh] overflow-y-auto",
       )}
     >
-      <div aria-hidden className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-[#d1d3d6]" />
+      <button
+        type="button"
+        onClick={() => (expanded ? setExpanded(false) : onClose?.())}
+        aria-label={expanded ? "Hide details" : "Close"}
+        className="mx-auto mb-2 flex h-5 w-full shrink-0 items-center justify-center rounded-full active:opacity-70 motion-reduce:active:opacity-100"
+      >
+        <span aria-hidden className="h-1 w-10 rounded-full bg-[#d1d3d6]" />
+      </button>
 
       <motion.div
         key={post.id}
@@ -759,7 +771,13 @@ function PostInfoContent({
         {creatorRow}
       </motion.div>
 
-      {hasMore ? (
+      {post.caption && !expanded ? (
+        <p className="mt-2 line-clamp-2 text-[15px] leading-5 tracking-tight text-[#222426]">
+          {post.caption}
+        </p>
+      ) : null}
+
+      {hasDetails ? (
         <div className="mt-2 shrink-0">
           <button
             type="button"
@@ -768,12 +786,12 @@ function PostInfoContent({
             className="flex w-full items-center justify-between rounded-xl px-1 py-2 text-left transition-colors active:bg-[#ececec] motion-reduce:active:bg-transparent"
           >
             <span className="text-sm font-medium tracking-tight text-[#707275]">
-              {expanded ? "Less" : "Details"}
+              {expanded ? "Hide details" : "About this design"}
             </span>
             <motion.span
               animate={{ rotate: expanded ? 180 : 0 }}
               transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
-              className="flex size-7 items-center justify-center rounded-full text-[#707275]"
+              className="flex size-7 items-center justify-center text-[#707275]"
             >
               <ChevronDown className="size-4" strokeWidth={2.2} />
             </motion.span>

@@ -1,13 +1,13 @@
 "use server";
 
-import { getRecentPosts, type PostListItem } from "./queries";
+import { getRecentPosts, type FeedSort, type PostListItem } from "./queries";
 
 const PAGE_SIZE = 24;
 
 export async function loadFeedPageAction(opts: {
   offset: number;
   category?: string;
-  sort?: "recent" | "oldest";
+  sort?: FeedSort;
   limit?: number;
 }): Promise<PostListItem[]> {
   return getRecentPosts({

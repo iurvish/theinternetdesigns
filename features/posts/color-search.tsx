@@ -346,36 +346,44 @@ export function ColorSearch({
     <div ref={rootRef} className="relative">
       {/* Split tag — Paper nodes AN-0 / AT-0 */}
       <div className="flex items-stretch gap-px">
-        <button
-          type="button"
-          onClick={() => (hasSelection ? openPickerAt(0) : openPicker())}
-          onMouseEnter={() => !hasSelection && setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-          aria-label={hasSelection ? "Edit colours" : "Search by colour"}
-          className={cn(
-            tagSegmentClass,
-            "relative overflow-visible rounded-l-xl transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
-            hasSelection
-              ? selected.length === 1
+        {hasSelection ? (
+          <div
+            role="group"
+            aria-label="Edit colours"
+            className={cn(
+              tagSegmentClass,
+              "relative overflow-visible rounded-l-xl",
+              selected.length === 1
                 ? "size-[38px] p-2"
-                : "h-[38px] gap-2 px-2 py-2"
-              : "size-[38px] p-2",
-            TAG_SEGMENT_SHADOW,
-          )}
-        >
-          {hasSelection ? (
-            selected.map((c, i) => (
+                : "h-[38px] gap-2 px-2 py-2",
+              TAG_SEGMENT_SHADOW,
+            )}
+          >
+            {selected.map((c, i) => (
               <TagSwatchChip
                 key={`${c}-${i}`}
                 color={c}
                 onClick={() => openPickerAt(i)}
                 onRemove={() => removeSelected(i)}
               />
-            ))
-          ) : (
+            ))}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => openPicker()}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            aria-label="Search by colour"
+            className={cn(
+              tagSegmentClass,
+              "relative size-[38px] overflow-visible rounded-l-xl p-2 transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
+              TAG_SEGMENT_SHADOW,
+            )}
+          >
             <ColorDotsIcon className="size-[22px]" />
-          )}
-        </button>
+          </button>
+        )}
 
         <button
           type="button"
@@ -484,15 +492,22 @@ export function ColorSearch({
               </div>
             </div>
 
-            <div className="border-t border-[#e3e5e8] bg-[#fafafa] px-3 py-2.5">
-              <Button
+            <div className="border-t border-[#e3e5e8] bg-[#fafafa] px-3 py-3">
+              <button
                 type="button"
                 onClick={onSearch}
-                size="sm"
-                className="h-8 w-full rounded-xl bg-[#1f2123] text-sm font-medium tracking-tight text-white hover:bg-[#2c2f31]"
+                className="relative h-9 w-full overflow-hidden rounded-2xl bg-[#1f2123] text-sm font-medium tracking-tight text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.14)] transition-[transform,background-color] hover:bg-[#2a2c2e] active:scale-[0.98] motion-reduce:active:scale-100"
               >
-                Search
-              </Button>
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/12 via-white/[0.03] to-transparent"
+                />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent"
+                />
+                <span className="relative z-[1]">Search</span>
+              </button>
             </div>
           </motion.div>
         ) : null}

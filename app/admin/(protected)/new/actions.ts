@@ -86,6 +86,8 @@ export type PublishInput = {
   mediaColors?: PaletteColor[][];
   /** Autoplay the post's video in the feed (only meaningful for video posts). */
   autoplayInFeed?: boolean;
+  featured?: boolean;
+  hiddenGem?: boolean;
 };
 
 export type PublishResult =
@@ -208,6 +210,8 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
         autoplayInFeed: hasVideo && (input.autoplayInFeed ?? false),
         imageCount,
         published: true,
+        featured: input.featured ?? false,
+        hiddenGem: input.hiddenGem ?? false,
       });
       await tx.insert(mediaTable).values(processedMedia);
       if (input.categoryIds.length > 0) {

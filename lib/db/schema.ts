@@ -91,6 +91,10 @@ export const posts = pgTable(
     autoplayInFeed: boolean("autoplay_in_feed").notNull().default(false),
     imageCount: integer("image_count").notNull().default(0),
     published: boolean("published").notNull().default(true),
+    /** Curated for the Featured feed filter. */
+    featured: boolean("featured").notNull().default(false),
+    /** Curated for the Hidden Gems feed filter. */
+    hiddenGem: boolean("hidden_gem").notNull().default(false),
     /** Generated tsvector for FTS across title + caption + creator refs. */
     searchTokens: text("search_tokens"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -101,6 +105,8 @@ export const posts = pgTable(
     index("posts_creator_idx").on(t.creatorId),
     index("posts_published_at_idx").on(t.publishedAt.desc()),
     index("posts_published_idx").on(t.published),
+    index("posts_featured_idx").on(t.featured),
+    index("posts_hidden_gem_idx").on(t.hiddenGem),
   ],
 );
 

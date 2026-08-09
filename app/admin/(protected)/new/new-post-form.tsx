@@ -26,6 +26,8 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
   // Autoplay this post's video in the feed (defaults on for video tweets).
   const [autoplayInFeed, setAutoplayInFeed] = useState(true);
+  const [featured, setFeatured] = useState(false);
+  const [hiddenGem, setHiddenGem] = useState(false);
   const [previewPending, startPreview] = useTransition();
   const [publishPending, startPublish] = useTransition();
 
@@ -47,6 +49,8 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
       setTitle("");
       setSelectedCats(new Set());
       setAutoplayInFeed(true);
+      setFeatured(false);
+      setHiddenGem(false);
     });
   }
 
@@ -69,6 +73,8 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
         categoryIds: Array.from(selectedCats),
         mediaColors: palettes,
         autoplayInFeed,
+        featured,
+        hiddenGem,
       });
       if (!res.ok) {
         toast.error(res.error);
@@ -214,6 +220,31 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Feed placement</Label>
+              <p className="text-xs text-muted-foreground">
+                Optional — a post can appear in both Featured and Hidden Gems.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={featured}
+                    onChange={(e) => setFeatured(e.target.checked)}
+                  />
+                  Featured
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={hiddenGem}
+                    onChange={(e) => setHiddenGem(e.target.checked)}
+                  />
+                  Hidden gem
+                </label>
               </div>
             </div>
 
