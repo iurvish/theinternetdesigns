@@ -24,7 +24,7 @@ export function HeroWordmark() {
   return (
     <AnimatedSelectionHighlight>
       <h1
-        className="relative grid text-center text-[clamp(2.5rem,15cqw,9.5rem)] font-bold capitalize leading-[1.04] [filter:drop-shadow(0px_2.7px_1.5px_#0000000A)_drop-shadow(0px_0.8px_0.5px_#0000000C)_drop-shadow(0px_0.8px_0.5px_#00000020)] sm:text-[clamp(2rem,9cqw,9.5rem)] sm:leading-none sm:whitespace-nowrap lg:[filter:drop-shadow(0px_3px_1.5px_#0000000D)_drop-shadow(0px_1px_0.5px_#0000000F)_drop-shadow(0px_1px_0.5px_#00000026)]"
+        className="relative grid text-center text-[clamp(3.25rem,20cqw,9.5rem)] font-bold capitalize leading-[1.04] [filter:drop-shadow(0px_2.7px_1.5px_#0000000A)_drop-shadow(0px_0.8px_0.5px_#0000000C)_drop-shadow(0px_0.8px_0.5px_#00000020)] sm:text-[clamp(2rem,9cqw,9.5rem)] sm:leading-none sm:whitespace-nowrap lg:[filter:drop-shadow(0px_3px_1.5px_#0000000D)_drop-shadow(0px_1px_0.5px_#0000000F)_drop-shadow(0px_1px_0.5px_#00000026)]"
         style={{
           fontFamily: "var(--font-sans)",
           letterSpacing: "-0.04em",
