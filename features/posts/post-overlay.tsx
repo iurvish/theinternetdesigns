@@ -15,6 +15,7 @@ import {
   playOverlayClose,
   playPostSwitch,
 } from "@/lib/tiks-sounds";
+import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
 
 const SOURCE_LABELS: Record<PostListItem["source"], string> = {
   x: "X",
@@ -412,7 +413,11 @@ export function PostOverlay({
                             ? (t) => setVideoTime(post.id, t)
                             : undefined
                         }
-                        alt={isActive ? (post.caption ?? "") : ""}
+                        alt={
+                          isActive && post.caption
+                            ? cleanCaptionForDisplay(post.caption)
+                            : ""
+                        }
                       />
                     </div>
                   </motion.div>

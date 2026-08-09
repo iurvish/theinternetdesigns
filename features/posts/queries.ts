@@ -8,6 +8,7 @@ import {
   type Hsl,
 } from "@/lib/media/color-utils";
 import type { PaletteColor } from "@/lib/media/colors";
+import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
 
 export type FeedSort = "recent" | "oldest" | "featured" | "hidden_gems";
 
@@ -119,7 +120,8 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
     return {
       id: p.id,
       title: p.title,
-      caption: p.caption,
+      // Strip trailing media t.co so SSR/client alt text and captions match.
+      caption: p.caption ? cleanCaptionForDisplay(p.caption) || null : null,
       sourceUrl: p.sourceUrl,
       source: p.source,
       hasVideo: p.hasVideo,

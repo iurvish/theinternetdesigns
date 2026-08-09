@@ -9,6 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { VideoPlayer } from "@/components/video-player";
 import { PostPalette } from "@/features/posts/post-palette";
 import { CaptionText } from "@/features/posts/caption-text";
+import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
 
 export default async function PostPage({
   params,
@@ -74,7 +75,9 @@ export default async function PostPage({
               >
                 <Image
                   src={m.mediumUrl ?? m.originalUrl}
-                  alt={post.caption ?? ""}
+                  alt={
+                    post.caption ? cleanCaptionForDisplay(post.caption) : ""
+                  }
                   fill
                   sizes="(max-width: 1024px) 100vw, 1024px"
                   className="object-contain"

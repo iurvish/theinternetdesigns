@@ -30,6 +30,7 @@ import {
   playMediaSwitch,
   playOverlayOpen,
 } from "@/lib/tiks-sounds";
+import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
 
 type Category = { slug: string; name: string };
 type SortKey = FeedSort;
@@ -45,6 +46,12 @@ const FEED_PAGE_SIZE = 24;
 
 function asPostList(value: unknown): PostListItem[] {
   return Array.isArray(value) ? (value as PostListItem[]) : EMPTY_POSTS;
+}
+
+/** Ignore stale empty cache entries — `[]` is truthy but must not beat server props. */
+function cachedPostsForKey(key: string): PostListItem[] | null {
+  const posts = asPostList(feedPageCache.get(key)?.posts);
+  return posts.length > 0 ? posts : null;
 }
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -212,20 +219,25 @@ function FeedBody({
     initTiksOnFirstGesture();
   }, []);
 
-  // Paginated feed — first page comes from server props (or module cache on
-  // remount). Category/sort keep prior posts painted until the new page lands.
+  // Paginated feed — seed from server props so SSR HTML matches hydration.
+  // Module cache may hold a stale empty `[]` from a prior filter; never let
+  // that override a non-empty `initialPosts` page from the server.
   const [feedPosts, setFeedPosts] = useState<PostListItem[]>(() => {
-    const cached = feedPageCache.get(DEFAULT_FILTER_KEY);
-    if (cached?.posts) return asPostList(cached.posts);
-    feedPageCache.set(DEFAULT_FILTER_KEY, {
-      posts: initialPosts,
-      hasMore: initialPosts.length >= FEED_PAGE_SIZE,
-    });
-    return initialPosts;
+    if (initialPosts.length > 0) {
+      feedPageCache.set(DEFAULT_FILTER_KEY, {
+        posts: initialPosts,
+        hasMore: initialPosts.length >= FEED_PAGE_SIZE,
+      });
+      return initialPosts;
+    }
+    return cachedPostsForKey(DEFAULT_FILTER_KEY) ?? initialPosts;
   });
   const [hasMore, setHasMore] = useState(() => {
+    if (initialPosts.length > 0) {
+      return initialPosts.length >= FEED_PAGE_SIZE;
+    }
     const cached = feedPageCache.get(DEFAULT_FILTER_KEY);
-    return cached?.hasMore ?? initialPosts.length >= FEED_PAGE_SIZE;
+    return cached?.hasMore ?? false;
   });
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedBootstrapping, setFeedBootstrapping] = useState(false);
@@ -235,27 +247,40 @@ function FeedBody({
   // Tracks the filter whose page is currently in `feedPosts`.
   const loadedFilterKey = useRef(DEFAULT_FILTER_KEY);
 
-  // Adopt a refreshed default page without blanking a filtered view the user
-  // already navigated to. Do not shrink a longer client-fetched page.
-  const [syncedInitial, setSyncedInitial] = useState(initialPosts);
-  if (syncedInitial !== initialPosts) {
-    setSyncedInitial(initialPosts);
-    const cached = feedPageCache.get(DEFAULT_FILTER_KEY);
-    const cachedPosts = asPostList(cached?.posts);
+  // After hydration: adopt a refreshed default page, or restore a longer
+  // client-fetched page from cache on soft remounts — never during render
+  // (reference changes on deserialized props caused hydration mismatches).
+  useEffect(() => {
+    if (active !== "all" || sort !== "recent") return;
+
+    const cachedPosts = asPostList(feedPageCache.get(DEFAULT_FILTER_KEY)?.posts);
     const keepLonger = cachedPosts.length > initialPosts.length;
-    if (!keepLonger) {
-      feedPageCache.set(DEFAULT_FILTER_KEY, {
-        posts: initialPosts,
-        hasMore: initialPosts.length >= FEED_PAGE_SIZE,
-      });
-    }
-    if (active === "all" && sort === "recent" && !keepLonger) {
+
+    if (keepLonger) {
+      setFeedPosts(cachedPosts);
+      setHasMore(Boolean(feedPageCache.get(DEFAULT_FILTER_KEY)?.hasMore));
       loadedFilterKey.current = DEFAULT_FILTER_KEY;
-      setFeedPosts(initialPosts);
-      setHasMore(initialPosts.length >= FEED_PAGE_SIZE);
       setFeedBootstrapping(false);
+      return;
     }
-  }
+
+    setFeedPosts((prev) => {
+      if (
+        prev.length === initialPosts.length &&
+        prev.every((p, i) => p.id === initialPosts[i]?.id)
+      ) {
+        return prev;
+      }
+      return initialPosts;
+    });
+    setHasMore(initialPosts.length >= FEED_PAGE_SIZE);
+    feedPageCache.set(DEFAULT_FILTER_KEY, {
+      posts: initialPosts,
+      hasMore: initialPosts.length >= FEED_PAGE_SIZE,
+    });
+    loadedFilterKey.current = DEFAULT_FILTER_KEY;
+    setFeedBootstrapping(false);
+  }, [initialPosts, active, sort]);
 
   // Colour-matched results fetched in place. Stored tagged with the colour key so
   // we can tell fresh results from a previous search's (avoids showing stale posts
@@ -985,7 +1010,13 @@ function MasonryCard({
             >
               <Image
                 src={activeSrc}
-                alt={post.caption ?? post.title ?? ""}
+                alt={
+                  (post.caption
+                    ? cleanCaptionForDisplay(post.caption)
+                    : null) ||
+                  post.title ||
+                  ""
+                }
                 fill
                 sizes="(max-width: 768px) 50vw, 33vw"
                 className="object-cover"
