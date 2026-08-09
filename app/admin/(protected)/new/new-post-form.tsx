@@ -1,283 +1,730 @@
 "use client";
-import { useState, useTransition } from "react";
+
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VideoPlayer } from "@/components/video-player";
-import { fetchPreview, publishPost } from "./actions";
-import type { NormalizedTweet } from "@/lib/providers/tweet/syndication";
+import { cn } from "@/lib/utils";
+import { fetchBulkPreviews, fetchPreview, publishPost } from "./actions";
+import type {
+  NormalizedTweet,
+  TweetMedia,
+} from "@/lib/providers/tweet/syndication";
 import type { PaletteColor } from "@/lib/media/colors";
 import { PaletteEditor } from "@/features/posts/palette-editor";
+import { INTERACTION_TYPES } from "@/features/posts/interaction-types";
+import { PUBLIC_CATEGORY_NAV } from "@/features/posts/public-categories";
+import { ChoiceChip, ChoiceChipGroup } from "./admin-choice-chips";
 
 type Category = { id: string; name: string; slug: string };
+type Platform = "x" | "pinterest" | "instagram";
+
+type DraftItem = {
+  tweetId: string;
+  tweet: NormalizedTweet;
+  existing: boolean;
+  palettes: PaletteColor[][];
+  title: string;
+  caption: string;
+  selectedCats: Set<string>;
+  interaction: string | null;
+  featured: boolean;
+  hiddenGem: boolean;
+  autoplayInFeed: boolean;
+  selected: boolean;
+};
+
+const PLATFORMS: { id: Platform; label: string; ready: boolean }[] = [
+  { id: "x", label: "X", ready: true },
+  { id: "pinterest", label: "Pinterest", ready: false },
+  { id: "instagram", label: "Instagram", ready: false },
+];
 
 export function NewPostForm({ categories }: { categories: Category[] }) {
   const router = useRouter();
-  const [url, setUrl] = useState("");
-  const [tweet, setTweet] = useState<NormalizedTweet | null>(null);
-  const [palettes, setPalettes] = useState<PaletteColor[][]>([]);
-  const [title, setTitle] = useState("");
-  const [caption, setCaption] = useState("");
-  const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
-  // Autoplay this post's video in the feed (defaults on for video tweets).
-  const [autoplayInFeed, setAutoplayInFeed] = useState(true);
-  const [featured, setFeatured] = useState(false);
-  const [hiddenGem, setHiddenGem] = useState(false);
+  const [platform, setPlatform] = useState<Platform>("x");
+  const [urlBlob, setUrlBlob] = useState("");
+  const [drafts, setDrafts] = useState<DraftItem[]>([]);
+  const [errors, setErrors] = useState<{ id: string; error: string }[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [mediaIndex, setMediaIndex] = useState(0);
   const [previewPending, startPreview] = useTransition();
   const [publishPending, startPublish] = useTransition();
 
+  const publicCats = useMemo(() => {
+    const order = new Map(PUBLIC_CATEGORY_NAV.map((c, i) => [c.slug, i]));
+    return categories
+      .filter((c) => order.has(c.slug))
+      .sort((a, b) => (order.get(a.slug) ?? 99) - (order.get(b.slug) ?? 99));
+  }, [categories]);
+
+  const active = drafts.find((d) => d.tweetId === activeId) ?? drafts[0] ?? null;
+  const isBulk = drafts.length > 1;
+  const activeMediaIndex = active
+    ? Math.min(mediaIndex, Math.max(active.tweet.media.length - 1, 0))
+    : 0;
+
+  useEffect(() => {
+    setMediaIndex(0);
+  }, [active?.tweetId]);
+
   function onFetch(e: React.FormEvent) {
     e.preventDefault();
+    if (platform !== "x") {
+      toast.error(`${PLATFORMS.find((p) => p.id === platform)?.label} bulk upload is coming soon.`);
+      return;
+    }
     startPreview(async () => {
-      const res = await fetchPreview(url);
+      const lines = urlBlob.trim();
+      // Single URL path keeps the original fast path + richer error.
+      const looksSingle =
+        lines.split(/[\s,;]+/).filter(Boolean).length === 1 &&
+        !lines.includes("\n");
+
+      if (looksSingle) {
+        const res = await fetchPreview(lines);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        if (res.existing) {
+          toast.error("This tweet is already published.");
+          return;
+        }
+        const draft = toDraft(res.tweet.id, res.tweet, res.existing, res.colors);
+        setDrafts([draft]);
+        setErrors([]);
+        setActiveId(draft.tweetId);
+        toast.success("Fetched 1 post.");
+        return;
+      }
+
+      const res = await fetchBulkPreviews(lines);
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
-      if (res.existing) {
-        toast.error("This tweet is already published.");
-        return;
+
+      const nextDrafts: DraftItem[] = [];
+      const nextErrors: { id: string; error: string }[] = [];
+      for (const item of res.items) {
+        if (!item.ok) {
+          nextErrors.push({ id: item.tweetId, error: item.error });
+          continue;
+        }
+        if (item.existing) {
+          nextErrors.push({ id: item.tweetId, error: "Already published." });
+          continue;
+        }
+        nextDrafts.push(
+          toDraft(item.tweetId, item.tweet, item.existing, item.colors),
+        );
       }
-      setTweet(res.tweet);
-      setPalettes(res.colors);
-      setCaption(res.tweet.text);
-      setTitle("");
-      setSelectedCats(new Set());
-      setAutoplayInFeed(true);
-      setFeatured(false);
-      setHiddenGem(false);
+      setDrafts(nextDrafts);
+      setErrors(nextErrors);
+      setActiveId(nextDrafts[0]?.tweetId ?? null);
+      toast.success(
+        `Fetched ${nextDrafts.length} post${nextDrafts.length === 1 ? "" : "s"}${
+          nextErrors.length ? ` · ${nextErrors.length} skipped` : ""
+        }.`,
+      );
     });
   }
 
-  function toggleCategory(id: string) {
-    setSelectedCats((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  function patchActive(patch: Partial<DraftItem>) {
+    if (!active) return;
+    setDrafts((prev) =>
+      prev.map((d) => (d.tweetId === active.tweetId ? { ...d, ...patch } : d)),
+    );
   }
 
-  function onPublish() {
-    if (!tweet) return;
+  function toggleCat(id: string) {
+    if (!active) return;
+    const next = new Set(active.selectedCats);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    patchActive({ selectedCats: next });
+  }
+
+  function onPublishOne() {
+    if (!active) return;
     startPublish(async () => {
-      const res = await publishPost({
-        tweetId: tweet.id,
-        title,
-        caption,
-        categoryIds: Array.from(selectedCats),
-        mediaColors: palettes,
-        autoplayInFeed,
-        featured,
-        hiddenGem,
-      });
+      const res = await publishDraft(active);
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
       toast.success("Published.");
-      router.push(`/post/${res.postId}`);
+      const remaining = drafts.filter((d) => d.tweetId !== active.tweetId);
+      setDrafts(remaining);
+      setActiveId(remaining[0]?.tweetId ?? null);
       router.refresh();
+    });
+  }
+
+  function onPublishSelected() {
+    const selected = drafts.filter((d) => d.selected);
+    const queue = selected.length ? selected : drafts;
+    if (queue.length === 0) return;
+    startPublish(async () => {
+      let ok = 0;
+      let fail = 0;
+      const publishedIds = new Set<string>();
+      for (const draft of queue) {
+        const res = await publishDraft(draft);
+        if (res.ok) {
+          ok++;
+          publishedIds.add(draft.tweetId);
+        } else {
+          fail++;
+        }
+      }
+      setDrafts((prev) => prev.filter((d) => !publishedIds.has(d.tweetId)));
+      setActiveId(null);
+      router.refresh();
+      if (fail === 0) toast.success(`Published ${ok} post${ok === 1 ? "" : "s"}.`);
+      else toast.message(`Published ${ok}, failed ${fail}.`);
     });
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">1. Paste tweet URL</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onFetch} className="flex gap-2">
-            <Input
-              placeholder="https://x.com/username/status/1234567890"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              disabled={previewPending}
-              required
-            />
-            <Button type="submit" disabled={previewPending || !url}>
-              {previewPending ? "Fetching…" : "Fetch"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {tweet ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">2. Preview & publish</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-5">
-            <div className="flex items-center gap-3">
-              {tweet.creator.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={tweet.creator.avatarUrl}
-                  alt=""
-                  className="h-10 w-10 rounded-full"
-                />
+      <div className="flex max-w-3xl flex-col gap-6">
+        <div className="flex flex-wrap gap-2">
+          {PLATFORMS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPlatform(p.id)}
+              className={cn(
+                "rounded-full px-4 py-2 text-sm font-medium tracking-tight transition-colors",
+                platform === p.id
+                  ? "bg-[#1f2123] text-white"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80",
+              )}
+            >
+              {p.label}
+              {!p.ready ? (
+                <span className="ml-1.5 text-[11px] opacity-70">Soon</span>
               ) : null}
-              <div className="text-sm">
-                <div className="font-medium">{tweet.creator.displayName}</div>
-                <div className="text-muted-foreground">@{tweet.creator.username}</div>
-              </div>
-            </div>
+            </button>
+          ))}
+        </div>
 
-            <div className="flex flex-col gap-3">
-              <div className="text-xs text-muted-foreground">
-                {tweet.media.length} media item{tweet.media.length === 1 ? "" : "s"} — preview before publishing
-              </div>
-              {tweet.media.map((m, i) => (
-                <div
-                  key={i}
-                  className="overflow-hidden rounded-lg border border-border/60 bg-muted"
-                >
-                  {m.kind === "image" ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={m.url}
-                      alt=""
-                      className="block h-auto w-full object-contain"
-                    />
-                  ) : (
-                    <VideoPlayer
-                      src={`/api/tweet-preview/${tweet.id}/${i}`}
-                      poster={m.posterUrl}
-                      mode={m.kind === "gif" ? "gif" : "video"}
-                    />
-                  )}
+        {platform === "x" ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">1. Paste X URLs</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                One URL for a single post, or paste 10–20 URLs (one per line) for
+                bulk fetch.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={onFetch} className="flex flex-col gap-3">
+                <Textarea
+                  placeholder={`https://x.com/user/status/123…\nhttps://x.com/user/status/456…`}
+                  value={urlBlob}
+                  onChange={(e) => setUrlBlob(e.target.value)}
+                  disabled={previewPending}
+                  required
+                  rows={6}
+                  className="font-mono text-sm"
+                />
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    disabled={previewPending || !urlBlob.trim()}
+                  >
+                    {previewPending ? "Fetching…" : "Fetch"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="py-10 text-center">
+              <p className="text-base font-medium tracking-tight">
+                {PLATFORMS.find((p) => p.id === platform)?.label} bulk upload
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Coming soon — paste multiple {platform} URLs here once the
+                provider is wired.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {errors.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base text-destructive">
+                Skipped ({errors.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+              {errors.map((e) => (
+                <div key={e.id} className="flex justify-between gap-3">
+                  <span className="font-mono text-xs">{e.id}</span>
+                  <span>{e.error}</span>
                 </div>
               ))}
-            </div>
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
 
-            <div className="grid gap-2">
-              <div className="flex items-baseline justify-between">
-                <Label>Colours</Label>
-                <span className="text-xs text-muted-foreground">
-                  Auto-extracted — tap a swatch to recolour before publishing.
-                </span>
-              </div>
-              <div className="flex flex-col gap-3">
-                {tweet.media.map((m, i) => (
-                  <PaletteEditor
-                    key={i}
-                    colors={palettes[i] ?? []}
-                    onColors={(next) =>
-                      setPalettes((prev) =>
-                        prev.map((c, idx) => (idx === i ? next : c)),
-                      )
-                    }
-                    thumbnailSrc={m.kind === "image" ? m.url : m.posterUrl}
-                  />
+      {drafts.length > 0 && active ? (
+        <div
+          className={cn(
+            "grid gap-4",
+            isBulk && "lg:grid-cols-[200px_minmax(0,1fr)]",
+          )}
+        >
+          {isBulk ? (
+            <Card className="h-fit lg:sticky lg:top-4">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Queue ({drafts.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex max-h-[min(70vh,560px)] flex-col gap-1 overflow-y-auto">
+                {drafts.map((d) => (
+                  <button
+                    key={d.tweetId}
+                    type="button"
+                    onClick={() => setActiveId(d.tweetId)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                      d.tweetId === active.tweetId
+                        ? "bg-[#1f2123] text-white"
+                        : "hover:bg-muted",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={d.selected}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setDrafts((prev) =>
+                          prev.map((x) =>
+                            x.tweetId === d.tweetId
+                              ? { ...x, selected: e.target.checked }
+                              : x,
+                          ),
+                        );
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="shrink-0"
+                    />
+                    <span className="truncate">@{d.tweet.creator.username}</span>
+                  </button>
                 ))}
-              </div>
-            </div>
+                <Button
+                  className="mt-3"
+                  onClick={onPublishSelected}
+                  disabled={publishPending}
+                >
+                  {publishPending
+                    ? "Publishing…"
+                    : `Publish ${
+                        drafts.some((d) => d.selected)
+                          ? drafts.filter((d) => d.selected).length
+                          : drafts.length
+                      }`}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
-            <div className="grid gap-2">
-              <Label htmlFor="title">Title (optional)</Label>
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Short title shown on cards"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="caption">Caption</Label>
-              <Textarea
-                id="caption"
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                rows={4}
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Categories</Label>
-              <div className="flex flex-wrap gap-2">
-                {categories.map((c) => {
-                  const active = selectedCats.has(c.id);
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => toggleCategory(c.id)}
-                      className="focus:outline-none"
-                    >
-                      <Badge
-                        variant={active ? "default" : "outline"}
-                        className="cursor-pointer"
-                      >
-                        {c.name}
-                      </Badge>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Feed placement</Label>
-              <p className="text-xs text-muted-foreground">
-                Optional — a post can appear in both Featured and Hidden Gems.
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={featured}
-                    onChange={(e) => setFeatured(e.target.checked)}
-                  />
-                  Featured
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={hiddenGem}
-                    onChange={(e) => setHiddenGem(e.target.checked)}
-                  />
-                  Hidden gem
-                </label>
-              </div>
-            </div>
-
-            {tweet.media.some((m) => m.kind === "video" || m.kind === "gif") ? (
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={autoplayInFeed}
-                  onChange={(e) => setAutoplayInFeed(e.target.checked)}
+          <Card className="min-w-0">
+            <CardHeader className="border-b border-border/50 pb-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-base">2. Preview & publish</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Review media and metadata, then publish.
+                  </p>
+                </div>
+                <AuthorMeta
+                  creator={active.tweet.creator}
+                  mediaCount={active.tweet.media.length}
                 />
-                Autoplay video in feed (otherwise it plays on hover)
-              </label>
-            ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="pt-5">
+              <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
+                <div className="flex flex-col gap-4 lg:sticky lg:top-4">
+                  <PreviewMediaGallery
+                    tweetId={active.tweet.id}
+                    media={active.tweet.media}
+                    selectedIndex={activeMediaIndex}
+                    onSelect={setMediaIndex}
+                  />
+                  <div className="grid gap-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <Label>
+                        Colours
+                        {active.tweet.media.length > 1
+                          ? ` · ${activeMediaIndex + 1}/${active.tweet.media.length}`
+                          : null}
+                      </Label>
+                      <span className="text-xs text-muted-foreground">
+                        Tap a swatch to recolour
+                      </span>
+                    </div>
+                    <PaletteEditor
+                      colors={active.palettes[activeMediaIndex] ?? []}
+                      onColors={(next) => {
+                        patchActive({
+                          palettes: active.palettes.map((c, idx) =>
+                            idx === activeMediaIndex ? next : c,
+                          ),
+                        });
+                      }}
+                      thumbnailSrc={(() => {
+                        const m = active.tweet.media[activeMediaIndex];
+                        if (!m) return null;
+                        return m.kind === "image" ? m.url : m.posterUrl;
+                      })()}
+                    />
+                  </div>
+                </div>
 
-            <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setTweet(null);
-                  setPalettes([]);
-                  setUrl("");
-                }}
-                disabled={publishPending}
-              >
-                Cancel
-              </Button>
-              <Button onClick={onPublish} disabled={publishPending}>
-                {publishPending ? "Publishing…" : "Publish"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                <div className="flex flex-col gap-5">
+                  <div className="grid gap-2">
+                    <Label htmlFor="title">Title (optional)</Label>
+                    <Input
+                      id="title"
+                      value={active.title}
+                      onChange={(e) => patchActive({ title: e.target.value })}
+                      placeholder="Short title shown on cards"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="caption">Caption</Label>
+                    <Textarea
+                      id="caption"
+                      value={active.caption}
+                      onChange={(e) => patchActive({ caption: e.target.value })}
+                      rows={5}
+                    />
+                  </div>
+
+                  <ChoiceChipGroup
+                    label="Category"
+                    hint="Public nav list"
+                  >
+                    {publicCats.map((c) => (
+                      <ChoiceChip
+                        key={c.id}
+                        label={c.name}
+                        active={active.selectedCats.has(c.id)}
+                        onClick={() => toggleCat(c.id)}
+                      />
+                    ))}
+                  </ChoiceChipGroup>
+
+                  <ChoiceChipGroup
+                    label="Interaction"
+                    hint="Side panel label"
+                  >
+                    {INTERACTION_TYPES.map((t) => (
+                      <ChoiceChip
+                        key={t}
+                        label={t}
+                        active={active.interaction === t}
+                        onClick={() =>
+                          patchActive({
+                            interaction: active.interaction === t ? null : t,
+                          })
+                        }
+                      />
+                    ))}
+                  </ChoiceChipGroup>
+
+                  <div className="grid gap-2.5">
+                    <Label>Feed placement</Label>
+                    <div className="flex flex-wrap gap-2.5">
+                      <ChoiceChip
+                        label="Featured"
+                        active={active.featured}
+                        onClick={() =>
+                          patchActive({ featured: !active.featured })
+                        }
+                      />
+                      <ChoiceChip
+                        label="Hidden gem"
+                        active={active.hiddenGem}
+                        onClick={() =>
+                          patchActive({ hiddenGem: !active.hiddenGem })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {active.tweet.media.some(
+                    (m) => m.kind === "video" || m.kind === "gif",
+                  ) ? (
+                    <label className="flex items-center gap-2.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={active.autoplayInFeed}
+                        onChange={(e) =>
+                          patchActive({ autoplayInFeed: e.target.checked })
+                        }
+                      />
+                      Autoplay video in feed
+                    </label>
+                  ) : null}
+
+                  <div className="sticky bottom-0 z-10 mt-1 flex justify-end gap-2 border-t border-border/60 bg-card/95 py-4 backdrop-blur-sm supports-backdrop-filter:bg-card/80">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setDrafts([]);
+                        setErrors([]);
+                        setActiveId(null);
+                        setUrlBlob("");
+                      }}
+                      disabled={publishPending}
+                    >
+                      Clear
+                    </Button>
+                    <Button onClick={onPublishOne} disabled={publishPending}>
+                      {publishPending ? "Publishing…" : "Publish this"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
     </div>
   );
+}
+
+function toDraft(
+  tweetId: string,
+  tweet: NormalizedTweet,
+  existing: boolean,
+  colors: PaletteColor[][],
+): DraftItem {
+  return {
+    tweetId,
+    tweet,
+    existing,
+    palettes: colors,
+    title: "",
+    caption: tweet.text,
+    selectedCats: new Set(),
+    interaction: null,
+    featured: false,
+    hiddenGem: false,
+    autoplayInFeed: true,
+    selected: true,
+  };
+}
+
+function AuthorMeta({
+  creator,
+  mediaCount,
+}: {
+  creator: NormalizedTweet["creator"];
+  mediaCount: number;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-muted/40 px-2.5 py-2">
+      {creator.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={creator.avatarUrl}
+          alt=""
+          className="size-8 shrink-0 rounded-full outline outline-1 outline-black/10"
+        />
+      ) : (
+        <div className="size-8 shrink-0 rounded-full bg-muted" />
+      )}
+      <div className="min-w-0 text-sm leading-tight">
+        <div className="truncate font-medium tracking-tight">
+          {creator.displayName}
+        </div>
+        <div className="truncate text-xs text-muted-foreground">
+          @{creator.username}
+          <span className="mx-1.5 text-border">·</span>
+          {mediaCount} media
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewMediaGallery({
+  tweetId,
+  media,
+  selectedIndex,
+  onSelect,
+}: {
+  tweetId: string;
+  media: TweetMedia[];
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  if (media.length === 0) {
+    return (
+      <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/30 text-sm text-muted-foreground">
+        No media on this post
+      </div>
+    );
+  }
+
+  const selected = media[selectedIndex] ?? media[0]!;
+  /** 2–4 items: compact 2-col grid; 5+: horizontal strip with peek. */
+  const useGrid = media.length >= 2 && media.length <= 4;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="overflow-hidden rounded-xl bg-muted outline outline-1 outline-black/10">
+        <PreviewMediaItem
+          tweetId={tweetId}
+          media={selected}
+          index={selectedIndex}
+        />
+      </div>
+
+      {media.length > 1 ? (
+        useGrid ? (
+          <div
+            className={cn(
+              "grid gap-2",
+              media.length === 2 && "max-w-[11rem] grid-cols-2",
+              media.length === 3 && "max-w-[16.5rem] grid-cols-3",
+              media.length === 4 && "max-w-[11rem] grid-cols-2",
+            )}
+          >
+            {media.map((m, i) => (
+              <MediaThumb
+                key={i}
+                media={m}
+                active={i === selectedIndex}
+                label={`${i + 1}`}
+                onClick={() => onSelect(i)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
+            {media.map((m, i) => (
+              <MediaThumb
+                key={i}
+                media={m}
+                active={i === selectedIndex}
+                label={`${i + 1}`}
+                onClick={() => onSelect(i)}
+                className="w-[4.5rem] shrink-0"
+              />
+            ))}
+            <div className="w-4 shrink-0" aria-hidden />
+          </div>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+function PreviewMediaItem({
+  tweetId,
+  media,
+  index,
+}: {
+  tweetId: string;
+  media: TweetMedia;
+  index: number;
+}) {
+  if (media.kind === "image") {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={media.url}
+        alt=""
+        className="mx-auto block max-h-[min(62vh,560px)] w-full object-contain"
+      />
+    );
+  }
+
+  return (
+    <VideoPlayer
+      src={`/api/tweet-preview/${tweetId}/${index}`}
+      poster={media.posterUrl}
+      mode={media.kind === "gif" ? "gif" : "video"}
+      className="max-h-[min(62vh,560px)] rounded-none"
+    />
+  );
+}
+
+function MediaThumb({
+  media,
+  active,
+  label,
+  onClick,
+  className,
+}: {
+  media: TweetMedia;
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  const src = media.kind === "image" ? media.url : media.posterUrl;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Media ${label}`}
+      aria-pressed={active}
+      className={cn(
+        "relative aspect-square overflow-hidden rounded-lg bg-muted outline outline-1 transition-[outline-color,transform] active:scale-[0.96] motion-reduce:active:scale-100",
+        active
+          ? "outline-2 outline-[#1f2123]"
+          : "outline-black/10 hover:outline-foreground/25",
+        className,
+      )}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt="" className="size-full object-cover" />
+      ) : (
+        <div className="flex size-full items-center justify-center text-[10px] text-muted-foreground">
+          {media.kind}
+        </div>
+      )}
+      {media.kind !== "image" ? (
+        <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-white">
+          {media.kind === "gif" ? "GIF" : "Video"}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+async function publishDraft(draft: DraftItem) {
+  return publishPost({
+    tweetId: draft.tweetId,
+    title: draft.title,
+    caption: draft.caption,
+    categoryIds: Array.from(draft.selectedCats),
+    mediaColors: draft.palettes,
+    autoplayInFeed: draft.autoplayInFeed,
+    featured: draft.featured,
+    hiddenGem: draft.hiddenGem,
+    interaction: draft.interaction,
+  });
 }

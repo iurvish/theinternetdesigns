@@ -29,6 +29,20 @@
       "when": 1785298070752,
       "tag": "0003_post_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785298070753,
+      "tag": "0004_interaction",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785298070754,
+      "tag": "0005_source_pinterest",
+      "breakpoints": true
     }
   ]
 }

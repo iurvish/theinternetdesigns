@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { VideoPlayer } from "@/components/video-player";
 import { PostPalette } from "@/features/posts/post-palette";
+import { CaptionText } from "@/features/posts/caption-text";
 
 export default async function PostPage({
   params,
@@ -86,9 +87,11 @@ export default async function PostPage({
       </div>
 
       {post.caption ? (
-        <p className="mt-6 whitespace-pre-line text-base leading-relaxed text-foreground">
-          {post.caption}
-        </p>
+        <CaptionText
+          text={post.caption}
+          excludeUrls={[post.sourceUrl]}
+          className="mt-6 text-base leading-relaxed text-foreground"
+        />
       ) : null}
 
       {categories.length > 0 ? (

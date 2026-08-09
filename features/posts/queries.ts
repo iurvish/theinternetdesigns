@@ -16,10 +16,22 @@ export type PostListItem = {
   title: string | null;
   caption: string | null;
   sourceUrl: string;
+  source:
+    | "x"
+    | "threads"
+    | "instagram"
+    | "pinterest"
+    | "linkedin"
+    | "dribbble"
+    | "behance";
   hasVideo: boolean;
   autoplayInFeed: boolean;
   imageCount: number;
   publishedAt: Date | null;
+  /** Interaction type for the side panel (e.g. MicroInteraction). */
+  interaction: string | null;
+  /** Dominant colours across media — shown as copyable swatches. */
+  colors: string[];
   creator: {
     username: string;
     displayName: string;
@@ -96,15 +108,26 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
     const c = creatorById.get(p.creatorId);
     const postMedia = mediaByPost.get(p.id) ?? [];
     const thumb = postMedia[0];
+    const colorSet = new Set<string>();
+    for (const m of postMedia) {
+      for (const swatch of m.colors ?? []) {
+        if (swatch?.hex) colorSet.add(swatch.hex.toLowerCase());
+        if (colorSet.size >= 6) break;
+      }
+      if (colorSet.size >= 6) break;
+    }
     return {
       id: p.id,
       title: p.title,
       caption: p.caption,
       sourceUrl: p.sourceUrl,
+      source: p.source,
       hasVideo: p.hasVideo,
       autoplayInFeed: p.autoplayInFeed,
       imageCount: p.imageCount,
       publishedAt: p.publishedAt,
+      interaction: p.interaction ?? null,
+      colors: Array.from(colorSet),
       creator: {
         username: c?.username ?? "",
         displayName: c?.displayName ?? "",

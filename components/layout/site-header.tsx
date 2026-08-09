@@ -11,26 +11,10 @@ export function SiteHeader() {
         >
           idesigns
         </Link>
-        <nav className="hidden items-center gap-1 text-sm text-muted-foreground md:flex">
-          <NavLink href="/">Feed</NavLink>
-          <NavLink href="/categories">Categories</NavLink>
-          <NavLink href="/creators">Creators</NavLink>
-        </nav>
         <div className="ml-auto flex flex-1 items-center justify-end gap-3 md:flex-none md:w-96">
           <SearchInput />
         </div>
       </div>
     </header>
-  );
-}
-
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-    >
-      {children}
-    </Link>
   );
 }

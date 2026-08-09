@@ -22,6 +22,7 @@ export const sourceEnum = pgEnum("source", [
   "x",
   "threads",
   "instagram",
+  "pinterest",
   "linkedin",
   "dribbble",
   "behance",
@@ -95,6 +96,8 @@ export const posts = pgTable(
     featured: boolean("featured").notNull().default(false),
     /** Curated for the Hidden Gems feed filter. */
     hiddenGem: boolean("hidden_gem").notNull().default(false),
+    /** Interaction type shown in the post side panel (e.g. MicroInteraction). */
+    interaction: varchar("interaction", { length: 80 }),
     /** Generated tsvector for FTS across title + caption + creator refs. */
     searchTokens: text("search_tokens"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

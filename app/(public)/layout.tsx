@@ -8,5 +8,5 @@ export default function PublicLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <main className="flex-1">{children}</main>;
+  return <main className="flex flex-1 flex-col">{children}</main>;
 }

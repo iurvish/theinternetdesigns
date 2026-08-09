@@ -8,11 +8,23 @@ import { ChevronDown, ExternalLink } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { OverlayMediaNav, overlayNavLabels } from "./media-nav-pill";
+import { CaptionText } from "./caption-text";
+import { ColorSwatches } from "./color-swatches";
 import {
   playMediaSwitch,
   playOverlayClose,
   playPostSwitch,
 } from "@/lib/tiks-sounds";
+
+const SOURCE_LABELS: Record<PostListItem["source"], string> = {
+  x: "X",
+  threads: "Threads",
+  instagram: "Instagram",
+  pinterest: "Pinterest",
+  linkedin: "LinkedIn",
+  dribbble: "Dribbble",
+  behance: "Behance",
+};
 
 /**
  * Motion vocabulary — pulled from the repo's animation skill so every surface
@@ -619,8 +631,12 @@ function PostInfoContent({
   onClose?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const hasMeta = post.categories.length > 0 || Boolean(post.sourceUrl);
-  const hasDetails = Boolean(post.caption) || hasMeta;
+  const hasDetails =
+    Boolean(post.caption) ||
+    Boolean(post.sourceUrl) ||
+    post.categories.length > 0 ||
+    post.colors.length > 0 ||
+    Boolean(post.interaction);
 
   useEffect(() => {
     setExpanded(false);
@@ -657,6 +673,36 @@ function PostInfoContent({
     </a>
   );
 
+  /** Figma 58:2608 — Source / Category / Colors / Interaction (no Tags). */
+  const metaRows = (
+    <div className="flex flex-col">
+      <Row label="Source">
+        <Link
+          href={post.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2.5 text-black hover:underline"
+        >
+          {SOURCE_LABELS[post.source] ?? "X"}
+          <ExternalLink className="size-3.5" />
+        </Link>
+      </Row>
+      {post.categories[0] ? (
+        <Row label="Category">
+          <span className="text-black">{post.categories[0].name}</span>
+        </Row>
+      ) : null}
+      <Row label="Colors">
+        <ColorSwatches colors={post.colors} />
+      </Row>
+      {post.interaction ? (
+        <Row label="Interaction">
+          <span className="text-black">{post.interaction}</span>
+        </Row>
+      ) : null}
+    </div>
+  );
+
   const detailsBlock = (
     <motion.div
       key={`details-${post.id}`}
@@ -668,35 +714,13 @@ function PostInfoContent({
     >
       <div className="flex flex-col gap-3.5 pt-3 md:pt-0">
         {post.caption ? (
-          <p className="whitespace-pre-wrap text-[15px] leading-5 tracking-tight text-[#222426] md:text-base">
-            {post.caption}
-          </p>
+          <CaptionText
+            text={post.caption}
+            excludeUrls={[post.sourceUrl]}
+            className="text-[15px] leading-5 tracking-tight text-[#222426] md:text-base"
+          />
         ) : null}
-
-        <div className="flex flex-col">
-          <Row label="Source">
-            <Link
-              href={post.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 text-black hover:underline"
-            >
-              X <ExternalLink className="size-3.5" />
-            </Link>
-          </Row>
-          {post.categories.length > 0 ? (
-            <Row label="Category">
-              <span className="text-black">{post.categories[0].name}</span>
-            </Row>
-          ) : null}
-          {post.categories.length > 1 ? (
-            <Row label="Tags">
-              <span className="text-right text-black">
-                {post.categories.slice(1).map((c) => c.name).join(", ")}
-              </span>
-            </Row>
-          ) : null}
-        </div>
+        {metaRows}
       </div>
     </motion.div>
   );
@@ -713,35 +737,14 @@ function PostInfoContent({
         >
           {creatorRow}
           {post.caption ? (
-            <p className="whitespace-pre-wrap text-base leading-5 tracking-tight text-[#222426]">
-              {post.caption}
-            </p>
+            <CaptionText
+              text={post.caption}
+              excludeUrls={[post.sourceUrl]}
+              className="text-base leading-5 tracking-tight text-[#222426]"
+            />
           ) : null}
         </motion.div>
-        <div className="flex flex-col">
-          <Row label="Source">
-            <Link
-              href={post.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 text-black hover:underline"
-            >
-              X <ExternalLink className="size-3.5" />
-            </Link>
-          </Row>
-          {post.categories.length > 0 ? (
-            <Row label="Category">
-              <span className="text-black">{post.categories[0].name}</span>
-            </Row>
-          ) : null}
-          {post.categories.length > 1 ? (
-            <Row label="Tags">
-              <span className="text-right text-black">
-                {post.categories.slice(1).map((c) => c.name).join(", ")}
-              </span>
-            </Row>
-          ) : null}
-        </div>
+        {metaRows}
       </div>
     );
   }
@@ -772,9 +775,13 @@ function PostInfoContent({
       </motion.div>
 
       {post.caption && !expanded ? (
-        <p className="mt-2 line-clamp-2 text-[15px] leading-5 tracking-tight text-[#222426]">
-          {post.caption}
-        </p>
+        <div className="mt-2 line-clamp-2 overflow-hidden text-[15px] leading-5 tracking-tight text-[#222426]">
+          <CaptionText
+            text={post.caption}
+            excludeUrls={[post.sourceUrl]}
+            className="line-clamp-2"
+          />
+        </div>
       ) : null}
 
       {hasDetails ? (
@@ -783,7 +790,7 @@ function PostInfoContent({
             type="button"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
-            className="flex w-full items-center justify-between rounded-xl px-1 py-2 text-left transition-colors active:bg-[#ececec] motion-reduce:active:bg-transparent"
+            className="flex w-full items-center justify-between py-1.5 text-left active:opacity-70 motion-reduce:active:opacity-100"
           >
             <span className="text-sm font-medium tracking-tight text-[#707275]">
               {expanded ? "Hide details" : "About this design"}

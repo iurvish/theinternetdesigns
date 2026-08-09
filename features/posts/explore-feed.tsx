@@ -49,7 +49,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 
 const SORT_ORDER: SortKey[] = ["recent", "hidden_gems", "featured", "oldest"];
 
-const SORT_MENU_WIDTH = "w-[176px]";
+const SORT_MENU_WIDTH = "w-[160px]";
 
 /** Paper colour-tag segment — matches ColorSearch toolbar chips */
 const TAG_SEGMENT_SHADOW =
@@ -88,77 +88,93 @@ export function ExploreFeed({
 
   return (
     <MotionConfig reducedMotion="user">
-      {/* Filter toolbar — rendered immediately (outside the grid's Suspense) so it
-          never blanks out on refresh. Elevated (relative z-30) so its dropdowns
-          paint above the grid; drop shadow gives the bar its crisp float. */}
-      {/* Plain positioning wrapper — all chrome lives on the inner sheet */}
-      <div className="relative z-30 w-full">
-        <div className={FIGMA_TOOLBAR_SHEET}>
-          {/* Mobile — two rows: controls, then categories */}
-          <div className="flex flex-col sm:hidden">
-            <div
-              className={cn(
-                "flex items-center justify-between gap-3 px-2 py-2.5",
-                MOBILE_ROW_SPLIT,
-              )}
-            >
-              <ColorSearch selected={colors} onSelected={setColors} />
-              <div className="flex shrink-0 items-center gap-2">
+      <div className="flex w-full flex-1 flex-col bg-[#f7f7f7]">
+        {/* Filter toolbar — rendered immediately (outside the grid's Suspense) so it
+            never blanks out on refresh. Elevated (relative z-30) so its dropdowns
+            paint above the grid; drop shadow gives the bar its crisp float. */}
+        {/* Plain positioning wrapper — all chrome lives on the inner sheet */}
+        <div className="relative z-30 w-full shrink-0">
+          <div className={FIGMA_TOOLBAR_SHEET}>
+            {/* Mobile — two rows: controls, then categories */}
+            <div className="flex flex-col sm:hidden">
+              <div
+                className={cn(
+                  "flex items-center justify-between gap-3 px-2 py-3.5",
+                  MOBILE_ROW_SPLIT,
+                )}
+              >
+                <ColorSearch selected={colors} onSelected={setColors} />
+                <div className="flex shrink-0 items-center gap-2">
+                  <SortMenu value={sort} onChange={setSort} />
+                  <GitHubStarLink />
+                </div>
+              </div>
+              <PillRail
+                categories={categories}
+                active={active}
+                onSelect={setActive}
+              />
+            </div>
+
+            {/* Desktop — single row: colour | categories | filter */}
+            <div className="hidden items-stretch gap-x-4 px-3.5 sm:flex">
+              <div className="flex shrink-0 items-center py-3.5">
+                <ColorSearch selected={colors} onSelected={setColors} />
+              </div>
+
+              <Divider />
+
+              <PillRail
+                categories={categories}
+                active={active}
+                onSelect={setActive}
+                className="min-w-0 flex-1"
+              />
+
+              <Divider />
+
+              <div className="flex shrink-0 items-center gap-2 py-3.5">
                 <SortMenu value={sort} onChange={setSort} />
                 <GitHubStarLink />
               </div>
             </div>
-            <PillRail
-              categories={categories}
-              active={active}
-              onSelect={setActive}
-            />
-          </div>
-
-          {/* Desktop — single row: colour | categories | filter */}
-          <div className="hidden items-stretch gap-x-4 px-3.5 sm:flex">
-            <div className="flex shrink-0 items-center py-3.5">
-              <ColorSearch selected={colors} onSelected={setColors} />
-            </div>
-
-            <Divider />
-
-            <PillRail
-              categories={categories}
-              active={active}
-              onSelect={setActive}
-              className="min-w-0 flex-1"
-            />
-
-            <Divider />
-
-            <div className="flex shrink-0 items-center gap-2 py-3.5">
-              <SortMenu value={sort} onChange={setSort} />
-              <GitHubStarLink />
-            </div>
           </div>
         </div>
+
+        {/* Only the grid streams in — the bar above stays put */}
+        <div className="flex min-h-0 w-full flex-1 flex-col">
+          <Suspense fallback={<GridSkeleton />}>
+            <FeedBody
+              postsPromise={postsPromise}
+              active={active}
+              sort={sort}
+              colors={colors}
+            />
+          </Suspense>
+        </div>
+
+        {/* Footer strip */}
+        <div className="h-16 w-full shrink-0 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]" />
       </div>
-
-      {/* Only the grid streams in — the bar above stays put */}
-      <Suspense fallback={<GridSkeleton />}>
-        <FeedBody
-          postsPromise={postsPromise}
-          active={active}
-          sort={sort}
-          colors={colors}
-        />
-      </Suspense>
-
-      {/* Footer strip */}
-      <div className="h-16 w-full shrink-0 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]" />
     </MotionConfig>
   );
 }
 
-function GridBox({ children }: { children: React.ReactNode }) {
+function GridBox({
+  children,
+  fill,
+}: {
+  children: React.ReactNode;
+  /** Stretch to fill remaining viewport when the feed is empty. */
+  fill?: boolean;
+}) {
   return (
-    <div className="flex w-full flex-1 items-start gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-2 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] sm:p-3.5">
+    <div
+      className={cn(
+        "flex w-full gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-2 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] sm:p-3.5",
+        fill ? "min-h-[50vh] flex-1 items-stretch" : "items-start",
+      )}
+    >
       {children}
     </div>
   );
@@ -342,7 +358,7 @@ function FeedBody({
 
   if (error) {
     return (
-      <GridBox>
+      <GridBox fill>
         <SetupRequired detail={error} />
       </GridBox>
     );
@@ -350,11 +366,14 @@ function FeedBody({
 
   // Skeletons are a last resort — only when there is genuinely nothing to show.
   const showSkeleton = refreshing && visible.length === 0;
+  const isEmpty = !showSkeleton && visible.length === 0;
 
   return (
     <>
-      <GridBox>
-        <div className="w-full">
+      <GridBox fill={isEmpty}>
+        <div
+          className={cn("w-full", isEmpty && "flex min-h-[50vh] flex-1 flex-col")}
+        >
           {showSkeleton ? (
             <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
               {Array.from({ length: 9 }).map((_, i) => (
@@ -367,7 +386,7 @@ function FeedBody({
                 />
               ))}
             </div>
-          ) : visible.length === 0 ? (
+          ) : isEmpty ? (
             <EmptyState hasPosts={initialPosts.length > 0} colorSearch={colorActive} />
           ) : (
             <div
@@ -521,7 +540,7 @@ function PillRail({
     <div className={cn("relative min-w-0 self-stretch", className)}>
       <div
         ref={scrollRef}
-        className="flex h-full items-center gap-2 overflow-x-auto px-2 py-2.5 [scrollbar-width:none] sm:gap-3 sm:px-0 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
+        className="flex h-full items-center gap-2 overflow-x-auto px-2 py-3.5 [scrollbar-width:none] sm:gap-3 sm:px-0 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
       >
         <Pill
           label="All"
@@ -570,7 +589,7 @@ function Pill({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] tracking-tight shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100 sm:px-3.5 sm:py-2.5 sm:text-sm",
+        "flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3.5 py-2 text-sm tracking-tight shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100 sm:px-3.5 sm:py-2.5",
         active
           ? "bg-[#1f2123] text-[#eaebeb]"
           : "bg-[#f2f2f2] text-[#707275] hover:bg-[#ececec]",
@@ -1015,7 +1034,7 @@ function EmptyState({
   colorSearch?: boolean;
 }) {
   return (
-    <div className="flex w-full flex-col items-center justify-center py-24 text-center">
+    <div className="flex w-full flex-1 flex-col items-center justify-center bg-[#f7f7f7] py-16 text-center">
       <h2 className="text-base font-medium text-[#1f2123]">
         {colorSearch
           ? "No designs match those colours"

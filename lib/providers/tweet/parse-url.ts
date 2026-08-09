@@ -11,3 +11,30 @@ export function parseTweetId(input: string): string | null {
     return null;
   }
 }
+
+/** Pull every X/Twitter status id from a multi-line / pasted blob of URLs. */
+export function parseTweetIds(blob: string): string[] {
+  const tokens = blob
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    const id = parseTweetId(token);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  // Also scan free-form text for status URLs that weren't split cleanly.
+  const re = /(?:twitter|x)\.com\/[^/\s]+\/status(?:es)?\/(\d{5,25})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(blob)) !== null) {
+    if (!seen.has(m[1])) {
+      seen.add(m[1]);
+      ids.push(m[1]);
+    }
+  }
+  return ids;
+}

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { captionFromSyndication } from "./clean-caption";
+
 const SYNDICATION_URL = "https://cdn.syndication.twimg.com/tweet-result";
 
 function getToken(id: string) {
@@ -62,6 +64,11 @@ type SyndResponse = {
   created_at?: string;
   user: SyndUser;
   mediaDetails?: SyndMedia[];
+  display_text_range?: [number, number];
+  entities?: {
+    urls?: { url: string; display_url?: string; expanded_url?: string; indices?: [number, number] }[];
+    media?: { url: string; display_url?: string; expanded_url?: string; indices?: [number, number] }[];
+  };
 };
 
 function pickBestVideo(variants: SyndVariant[]): SyndVariant | null {
@@ -129,7 +136,8 @@ export async function fetchTweet(id: string): Promise<NormalizedTweet> {
   return {
     id: data.id_str,
     url: `https://x.com/${data.user.screen_name}/status/${data.id_str}`,
-    text: data.full_text ?? data.text ?? "",
+    // Caption-ready: exclude Twitter's trailing media t.co shortlink.
+    text: captionFromSyndication(data),
     createdAt: data.created_at ?? null,
     creator: {
       sourceId: data.user.id_str,

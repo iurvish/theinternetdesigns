@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { categories, media, postCategories, posts } from "@/lib/db/schema";
+import { media, postCategories, posts } from "@/lib/db/schema";
+import { ensurePublicCategories } from "@/lib/db/ensure-public-categories";
 import { EditPostForm } from "./edit-form";
 
 export const dynamic = "force-dynamic";
@@ -17,10 +18,7 @@ export default async function EditPostPage({
   if (!post) notFound();
 
   const [cats, currentLinks, mediaRows] = await Promise.all([
-    db
-      .select({ id: categories.id, name: categories.name, slug: categories.slug })
-      .from(categories)
-      .orderBy(asc(categories.sortOrder), asc(categories.name)),
+    ensurePublicCategories(),
     db
       .select({ categoryId: postCategories.categoryId })
       .from(postCategories)
@@ -58,6 +56,7 @@ export default async function EditPostPage({
         initialAutoplayInFeed={post.autoplayInFeed}
         initialFeatured={post.featured}
         initialHiddenGem={post.hiddenGem}
+        initialInteraction={post.interaction ?? null}
         hasVideo={post.hasVideo}
         initialCategoryIds={currentLinks.map((l) => l.categoryId)}
         categories={cats}

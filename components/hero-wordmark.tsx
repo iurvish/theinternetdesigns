@@ -3,13 +3,16 @@
 import { AnimatedSelectionHighlight } from "@/components/animated-selection-highlight";
 
 /**
- * Desktop: one continuous text node ("the internet designs") — no inline gaps.
- * Mobile: soft break via <br> inside the same flow so selection still spans both lines.
+ * Desktop (sm+): one continuous text node ("the internet designs") — no breaks.
+ * Mobile: soft breaks via <br> so selection still spans all three lines
+ * (The / Internet / Designs).
  */
 function WordmarkLines() {
   return (
     <span className="inline-block">
-      the internet{" "}
+      the{" "}
+      <br className="sm:hidden" aria-hidden="true" />
+      internet{" "}
       <br className="sm:hidden" aria-hidden="true" />
       designs
     </span>

@@ -10,7 +10,7 @@ import { HeroWordmark } from "@/components/hero-wordmark";
 
 export default function HomePage() {
   return (
-    <div className="flex w-full flex-col items-center bg-[#f7f7f7] px-1 sm:px-7">
+    <div className="flex w-full flex-1 flex-col items-center bg-[#f7f7f7] px-1 sm:px-7">
       <div className="flex w-full flex-1 flex-col items-start px-1 sm:px-10 lg:px-18">
         {/* Hero heading */}
         <div className="relative flex w-full items-center justify-center border-r border-b border-l border-[#e3e5e8] pb-20 pt-14 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] [container-type:inline-size] sm:py-18 lg:py-24">

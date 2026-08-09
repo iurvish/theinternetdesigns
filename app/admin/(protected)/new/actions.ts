@@ -11,12 +11,13 @@ import {
   posts,
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { parseTweetId } from "@/lib/providers/tweet/parse-url";
+import { parseTweetId, parseTweetIds } from "@/lib/providers/tweet/parse-url";
 import { fetchTweet, type NormalizedTweet } from "@/lib/providers/tweet/syndication";
 import { processImage, processVideo, uploadAvatar } from "@/lib/media/process";
 import { extractPalette, type PaletteColor } from "@/lib/media/colors";
 import { firstFramePalette } from "@/lib/media/video-frame";
 import { sanitizePalette } from "@/lib/media/color-utils";
+import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
 
 export type PreviewResult =
   | {
@@ -88,7 +89,80 @@ export type PublishInput = {
   autoplayInFeed?: boolean;
   featured?: boolean;
   hiddenGem?: boolean;
+  interaction?: string | null;
 };
+
+export type BulkPreviewItem =
+  | {
+      ok: true;
+      tweetId: string;
+      tweet: NormalizedTweet;
+      existing: boolean;
+      colors: PaletteColor[][];
+    }
+  | { ok: false; tweetId: string; input: string; error: string };
+
+export type BulkPreviewResult =
+  | { ok: true; items: BulkPreviewItem[] }
+  | { ok: false; error: string };
+
+/** Fetch many X posts from a pasted blob of URLs (one per line or space-separated). */
+export async function fetchBulkPreviews(blob: string): Promise<BulkPreviewResult> {
+  await requireAdmin();
+  const ids = parseTweetIds(blob);
+  if (ids.length === 0) {
+    return { ok: false, error: "No valid X/Twitter URLs found." };
+  }
+  if (ids.length > 25) {
+    return { ok: false, error: "Paste at most 25 URLs at a time." };
+  }
+
+  const items: BulkPreviewItem[] = [];
+  for (const id of ids) {
+    try {
+      const tweet = await fetchTweet(id);
+      if (tweet.media.length === 0) {
+        items.push({
+          ok: false,
+          tweetId: id,
+          input: id,
+          error: "This tweet has no media.",
+        });
+        continue;
+      }
+      const [existing] = await db
+        .select({ id: posts.id })
+        .from(posts)
+        .where(and(eq(posts.source, "x"), eq(posts.sourceId, id)))
+        .limit(1);
+      const existingFlag = Boolean(existing);
+      const colors = existingFlag
+        ? []
+        : await Promise.all(
+            tweet.media.map(async (m) => {
+              if (m.kind === "image") return paletteFromUrl(m.url);
+              return (await firstFramePalette(m.url)) ?? paletteFromUrl(m.posterUrl);
+            }),
+          );
+      items.push({
+        ok: true,
+        tweetId: id,
+        tweet,
+        existing: existingFlag,
+        colors,
+      });
+    } catch (err) {
+      items.push({
+        ok: false,
+        tweetId: id,
+        input: id,
+        error: err instanceof Error ? err.message : "Fetch failed.",
+      });
+    }
+  }
+
+  return { ok: true, items };
+}
 
 export type PublishResult =
   | { ok: true; postId: string }
@@ -192,6 +266,8 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
     const imageCount = processedMedia.filter((m) => m.kind === "image").length;
     const hasVideo = processedMedia.some((m) => m.kind === "video" || m.kind === "gif");
     const publishedAt = tweet.createdAt ? new Date(tweet.createdAt) : new Date();
+    const raw = tweet.raw as { full_text?: string; text?: string } | null;
+    const rawText = raw?.full_text ?? raw?.text ?? tweet.text;
 
     await db.transaction(async (tx) => {
       await tx.insert(posts).values({
@@ -201,8 +277,10 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
         sourceUrl: tweet.url,
         creatorId: creator!.id,
         title: input.title.trim() || null,
-        caption: input.caption.trim() || tweet.text || null,
-        rawText: tweet.text,
+        // Strip trailing media t.co even if the admin left syndication's append in.
+        caption:
+          cleanCaptionForDisplay(input.caption.trim()) || tweet.text || null,
+        rawText,
         providerMeta: tweet.raw as object,
         publishedAt,
         hasVideo,
@@ -212,6 +290,7 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
         published: true,
         featured: input.featured ?? false,
         hiddenGem: input.hiddenGem ?? false,
+        interaction: input.interaction?.trim() || null,
       });
       await tx.insert(mediaTable).values(processedMedia);
       if (input.categoryIds.length > 0) {

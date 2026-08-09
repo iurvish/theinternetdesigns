@@ -1,16 +1,22 @@
 "use client";
-import { useState, useTransition } from "react";
+
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { PaletteColor } from "@/lib/media/colors";
 import { updatePost } from "../../actions";
 import { MediaPalettes, type EditMedia } from "./media-palettes";
+import { INTERACTION_TYPES } from "@/features/posts/interaction-types";
+import { PUBLIC_CATEGORY_NAV } from "@/features/posts/public-categories";
+import {
+  ChoiceChip,
+  ChoiceChipGroup,
+} from "../../../new/admin-choice-chips";
 
 type Category = { id: string; name: string; slug: string };
 
@@ -22,6 +28,7 @@ export function EditPostForm({
   initialAutoplayInFeed,
   initialFeatured,
   initialHiddenGem,
+  initialInteraction,
   hasVideo,
   initialCategoryIds,
   categories,
@@ -34,6 +41,7 @@ export function EditPostForm({
   initialAutoplayInFeed: boolean;
   initialFeatured: boolean;
   initialHiddenGem: boolean;
+  initialInteraction: string | null;
   hasVideo: boolean;
   initialCategoryIds: string[];
   categories: Category[];
@@ -46,11 +54,19 @@ export function EditPostForm({
   const [autoplayInFeed, setAutoplayInFeed] = useState(initialAutoplayInFeed);
   const [featured, setFeatured] = useState(initialFeatured);
   const [hiddenGem, setHiddenGem] = useState(initialHiddenGem);
+  const [interaction, setInteraction] = useState<string | null>(initialInteraction);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialCategoryIds));
   const [palettes, setPalettes] = useState<Record<string, PaletteColor[]>>(() =>
     Object.fromEntries(media.map((m) => [m.id, m.colors])),
   );
   const [pending, startTransition] = useTransition();
+
+  const publicCats = useMemo(() => {
+    const order = new Map(PUBLIC_CATEGORY_NAV.map((c, i) => [c.slug, i]));
+    return categories
+      .filter((c) => order.has(c.slug))
+      .sort((a, b) => (order.get(a.slug) ?? 99) - (order.get(b.slug) ?? 99));
+  }, [categories]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -71,6 +87,7 @@ export function EditPostForm({
         autoplayInFeed,
         featured,
         hiddenGem,
+        interaction,
         categoryIds: Array.from(selected),
         mediaColors: media.map((m) => ({
           mediaId: m.id,
@@ -109,29 +126,27 @@ export function EditPostForm({
           />
         </div>
 
-        <div className="grid gap-2">
-          <Label>Categories</Label>
-          <div className="flex flex-wrap gap-2">
-            {categories.map((c) => {
-              const active = selected.has(c.id);
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => toggle(c.id)}
-                  className="focus:outline-none"
-                >
-                  <Badge
-                    variant={active ? "default" : "outline"}
-                    className="cursor-pointer"
-                  >
-                    {c.name}
-                  </Badge>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <ChoiceChipGroup label="Category">
+          {publicCats.map((c) => (
+            <ChoiceChip
+              key={c.id}
+              label={c.name}
+              active={selected.has(c.id)}
+              onClick={() => toggle(c.id)}
+            />
+          ))}
+        </ChoiceChipGroup>
+
+        <ChoiceChipGroup label="Interaction">
+          {INTERACTION_TYPES.map((t) => (
+            <ChoiceChip
+              key={t}
+              label={t}
+              active={interaction === t}
+              onClick={() => setInteraction(interaction === t ? null : t)}
+            />
+          ))}
+        </ChoiceChipGroup>
 
         <MediaPalettes media={media} palettes={palettes} onChange={setPalettes} />
 
@@ -144,30 +159,18 @@ export function EditPostForm({
           Published (visible on the public site)
         </label>
 
-        <div className="grid gap-2">
-          <Label>Feed placement</Label>
-          <p className="text-xs text-muted-foreground">
-            Optional — a post can appear in both Featured and Hidden Gems.
-          </p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={featured}
-                onChange={(e) => setFeatured(e.target.checked)}
-              />
-              Featured
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={hiddenGem}
-                onChange={(e) => setHiddenGem(e.target.checked)}
-              />
-              Hidden gem
-            </label>
-          </div>
-        </div>
+        <ChoiceChipGroup label="Feed placement">
+          <ChoiceChip
+            label="Featured"
+            active={featured}
+            onClick={() => setFeatured((v) => !v)}
+          />
+          <ChoiceChip
+            label="Hidden gem"
+            active={hiddenGem}
+            onClick={() => setHiddenGem((v) => !v)}
+          />
+        </ChoiceChipGroup>
 
         {hasVideo ? (
           <label className="flex items-center gap-2 text-sm">

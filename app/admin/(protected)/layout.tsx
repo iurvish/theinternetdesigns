@@ -21,7 +21,6 @@ export default async function AdminProtectedLayout({
           <AdminNavLink href="/admin">Dashboard</AdminNavLink>
           <AdminNavLink href="/admin/new">New post</AdminNavLink>
           <AdminNavLink href="/admin/posts">Posts</AdminNavLink>
-          <AdminNavLink href="/admin/categories">Categories</AdminNavLink>
           <AdminNavLink href="/admin/creators">Creators</AdminNavLink>
         </nav>
         <div className="mt-8 border-t border-border/60 pt-4">
