@@ -167,6 +167,9 @@ export async function getRecentPosts(
   const offset = opts.offset ?? 0;
   const sort = opts.sort ?? "recent";
   const sortDir = sort === "oldest" ? asc : desc;
+  // Gallery "Recently" = newest additions first (createdAt), not the source
+  // tweet/pin date — otherwise old X posts land at the bottom when published.
+  const order = [sortDir(posts.createdAt), sortDir(posts.publishedAt)] as const;
 
   const flagFilter =
     sort === "featured"
@@ -187,7 +190,7 @@ export async function getRecentPosts(
       .innerJoin(postCategories, eq(postCategories.postId, posts.id))
       .innerJoin(categories, eq(categories.id, postCategories.categoryId))
       .where(and(baseWhere, eq(categories.slug, opts.category)))
-      .orderBy(sortDir(posts.publishedAt), sortDir(posts.createdAt))
+      .orderBy(...order)
       .limit(limit)
       .offset(offset)
       .then((r) => r.map((row) => row.post));
@@ -196,7 +199,7 @@ export async function getRecentPosts(
       .select()
       .from(posts)
       .where(baseWhere)
-      .orderBy(sortDir(posts.publishedAt), sortDir(posts.createdAt))
+      .orderBy(...order)
       .limit(limit)
       .offset(offset);
   }
@@ -211,7 +214,7 @@ export async function getPostsByCategory(slug: string, opts: { limit?: number } 
     .innerJoin(postCategories, eq(postCategories.postId, posts.id))
     .innerJoin(categories, eq(categories.id, postCategories.categoryId))
     .where(and(eq(categories.slug, slug), eq(posts.published, true)))
-    .orderBy(desc(posts.publishedAt), desc(posts.createdAt))
+    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
     .limit(limit);
   return loadPostsWithRelations(rows.map((r) => r.post));
 }

@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import Image from "next/image";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
@@ -31,6 +32,13 @@ import {
   playOverlayOpen,
 } from "@/lib/tiks-sounds";
 import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
+import {
+  MasonryGrid,
+  postAspectRatioValue,
+  useMasonryLayout,
+  useMasonryReady,
+  useResponsiveMasonryBuckets,
+} from "./masonry-grid";
 
 type Category = { slug: string; name: string };
 type SortKey = FeedSort;
@@ -84,8 +92,9 @@ const MOBILE_ROW_SPLIT =
 
 /**
  * The public "The Internet Designs" explorer — a hero heading, a category
- * filter toolbar, and a Pinterest-style masonry of posts. Ported from Figma
- * (node 1:2). Light-only aesthetic using the design's literal palette.
+ * filter toolbar, and a row-first masonry feed (newest across the top).
+ * Fullscreen shared-element morph is preserved; feed cards use `layout={false}`
+ * so they never animate on load.
  *
  * Initial posts arrive already resolved from the server (no client Suspense /
  * use(promise)). Filter changes keep the current grid painted until the next
@@ -477,6 +486,45 @@ function FeedBody({
     return asPostList(feedPosts);
   }, [colorActive, colorPosts, feedPosts]);
 
+  const layoutReady = useMasonryReady();
+  const columnCount = useMasonryLayout();
+  const aspectRatios = useMemo(
+    () => visible.map((p, i) => postAspectRatioValue(p, i)),
+    [visible],
+  );
+  const { one: buckets1, two: buckets2, three: buckets3 } =
+    useResponsiveMasonryBuckets(aspectRatios);
+
+  const mapBuckets = (
+    buckets: number[][],
+    mode: "static" | "interactive",
+  ) =>
+    buckets.map((indices) =>
+      indices.map((i) => {
+        const p = visible[i]!;
+        if (mode === "static") {
+          return <StaticFeedCard key={p.id} post={p} index={i} />;
+        }
+        return (
+          <MasonryCard
+            key={p.id}
+            post={p}
+            index={i}
+            onOpen={(idx) => {
+              playOverlayOpen();
+              setOpenIndex(idx);
+            }}
+            mediaIndex={mediaByPost[p.id] ?? 0}
+            onMediaIndex={(idx) => setPostMedia(p.id, idx)}
+            suspended={openIndex === i}
+            instantLayout={switchingPost}
+            getVideoTime={getVideoTime}
+            setVideoTime={setVideoTime}
+          />
+        );
+      }),
+    );
+
   if (error) {
     return (
       <GridBox fill>
@@ -490,6 +538,20 @@ function FeedBody({
   const showSkeleton = refreshing && visible.length === 0;
   const isEmpty = !showSkeleton && visible.length === 0;
 
+  // Same row-first buckets at every breakpoint. SSR paints static cards; after
+  // hydration the active breakpoint upgrades in place — positions never change.
+  const modeFor = (cols: number): "static" | "interactive" =>
+    layoutReady && columnCount === cols ? "interactive" : "static";
+
+  const columnsFor = (cols: 1 | 2 | 3, buckets: number[][]) => {
+    // After hydration, drop inactive breakpoint trees so images/layoutIds
+    // only exist once. SSR keeps all three so CSS can show the right one.
+    if (layoutReady && columnCount !== cols) {
+      return Array.from({ length: cols }, () => [] as ReactNode[]);
+    }
+    return mapBuckets(buckets, modeFor(cols));
+  };
+
   return (
     <>
       <GridBox fill={isEmpty}>
@@ -501,47 +563,48 @@ function FeedBody({
           ) : isEmpty ? (
             <EmptyState hasPosts={initialPosts.length > 0} colorSearch={colorActive} />
           ) : (
-            <div
-              className={cn(
-                "w-full columns-1 gap-2.5 transition-opacity duration-200 sm:columns-2 md:columns-3 [column-fill:_balance]",
-                refreshing && "opacity-55",
-              )}
-            >
-              {visible.map((p, i) => (
-                <MasonryCard
-                  key={p.id}
-                  post={p}
-                  index={i}
-                  onOpen={(i) => {
-                    playOverlayOpen();
-                    setOpenIndex(i);
-                  }}
-                  mediaIndex={mediaByPost[p.id] ?? 0}
-                  onMediaIndex={(idx) => setPostMedia(p.id, idx)}
-                  suspended={openIndex === i}
-                  instantLayout={switchingPost}
-                  getVideoTime={getVideoTime}
-                  setVideoTime={setVideoTime}
-                />
-              ))}
-            </div>
+            <>
+              <MasonryGrid
+                columnCount={1}
+                className={cn("flex sm:hidden", refreshing && "opacity-55")}
+                columns={columnsFor(1, buckets1)}
+              />
+              <MasonryGrid
+                columnCount={2}
+                className={cn(
+                  "hidden sm:flex md:hidden",
+                  refreshing && "opacity-55",
+                )}
+                columns={columnsFor(2, buckets2)}
+              />
+              <MasonryGrid
+                columnCount={3}
+                className={cn("hidden md:flex", refreshing && "opacity-55")}
+                columns={columnsFor(3, buckets3)}
+              />
+            </>
           )}
 
           {/* Infinite-scroll sentinel — starts fetching ~800px before it appears. */}
           {!colorActive && hasMore && !showSkeleton ? (
             <div ref={sentinelRef} className="w-full py-4" aria-hidden>
               {loadingMore ? (
-                <div className="columns-1 gap-2.5 sm:columns-2 md:columns-3">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
-                        i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-72",
-                      )}
-                    />
-                  ))}
-                </div>
+                layoutReady ? (
+                  <MasonryGrid
+                    columnCount={columnCount}
+                    columns={Array.from({ length: columnCount }, (_, col) => [
+                      <div
+                        key={col}
+                        className={cn(
+                          "animate-pulse rounded-lg bg-[#ececee]",
+                          col % 3 === 0 ? "h-64" : col % 3 === 1 ? "h-52" : "h-72",
+                        )}
+                      />,
+                    ])}
+                  />
+                ) : (
+                  <GridSkeletonColumns />
+                )
               ) : null}
             </div>
           ) : null}
@@ -574,19 +637,27 @@ function FeedBody({
   );
 }
 
-/** Only rendered when the grid is empty AND a first page is still loading. */
+/** Loading placeholder — 1 col on mobile, 2 on sm, 3 on md+ (pure CSS). */
 function GridSkeletonColumns() {
+  const heights = ["h-64", "h-52", "h-80", "h-60", "h-72", "h-56"] as const;
+
   return (
-    <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
-      {Array.from({ length: 9 }).map((_, i) => (
-        <div
-          key={i}
-          className={cn(
-            "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
-            i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-80",
-          )}
-        />
-      ))}
+    <div className="flex w-full items-start gap-2.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+        {heights.slice(0, 3).map((h, i) => (
+          <div key={i} className={cn("animate-pulse rounded-lg bg-[#ececee]", h)} />
+        ))}
+      </div>
+      <div className="hidden min-w-0 flex-1 flex-col gap-2.5 sm:flex">
+        {heights.slice(2, 5).map((h, i) => (
+          <div key={i} className={cn("animate-pulse rounded-lg bg-[#ececee]", h)} />
+        ))}
+      </div>
+      <div className="hidden min-w-0 flex-1 flex-col gap-2.5 md:flex">
+        {heights.slice(1, 4).map((h, i) => (
+          <div key={i} className={cn("animate-pulse rounded-lg bg-[#ececee]", h)} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -887,6 +958,44 @@ function useViewportPresence(enabled: boolean) {
   return { ref: setNode, near, inView };
 }
 
+/**
+ * SSR/hydration placeholder — same geometry as MasonryCard, no layoutId / video.
+ * Positions match the interactive grid so hydration never reshuffles posts.
+ */
+function StaticFeedCard({ post, index }: { post: PostListItem; index: number }) {
+  const aspectRatio =
+    post.thumbnail?.width && post.thumbnail?.height
+      ? `${post.thumbnail.width} / ${post.thumbnail.height}`
+      : index % 3 === 0
+        ? "720 / 900"
+        : index % 3 === 1
+          ? "1"
+          : "1066 / 720";
+
+  const src = post.thumbnail?.url;
+  const alt =
+    (post.caption ? cleanCaptionForDisplay(post.caption) : null) ||
+    post.title ||
+    "";
+
+  return (
+    <div className="relative block overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]">
+      <div className="relative w-full" style={{ aspectRatio }}>
+        {src ? (
+          <Image
+            src={src}
+            alt={alt}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 33vw"
+            className="object-cover"
+            priority={index < 4}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** Small skeuomorphic layout-preview widget from the toolbar (node 1:22). */
 function MasonryCard({
   post,
@@ -904,9 +1013,7 @@ function MasonryCard({
   onOpen: (i: number) => void;
   mediaIndex: number;
   onMediaIndex: (idx: number) => void;
-  /** True while this post is open in the lightbox — pause so it doesn't drift. */
   suspended: boolean;
-  /** Snap layout changes instead of animating — used while the lightbox swaps posts. */
   instantLayout?: boolean;
   getVideoTime: (id: string) => number | undefined;
   setVideoTime: (id: string, t: number) => void;
@@ -970,12 +1077,9 @@ function MasonryCard({
   return (
     <motion.div
       ref={viewportRef}
+      layout={false}
       layoutId={`post-${post.id}`}
-      transition={
-        instantLayout
-          ? { duration: 0 }
-          : { type: "spring", duration: 0.4, bounce: 0.08 }
-      }
+      transition={instantLayout ? { duration: 0 } : undefined}
       role="button"
       tabIndex={0}
       onClick={() => onOpen(index)}
@@ -988,7 +1092,7 @@ function MasonryCard({
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
       className={cn(
-        "group relative mb-2.5 block cursor-pointer break-inside-avoid overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]",
+        "group relative block cursor-pointer overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]",
         suspended && "z-[60]",
       )}
       style={{ boxShadow: "none" }}

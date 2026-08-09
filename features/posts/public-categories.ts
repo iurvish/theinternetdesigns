@@ -2,6 +2,8 @@
 export const PUBLIC_CATEGORY_NAV: { slug: string; name: string }[] = [
   { slug: "interfaces", name: "Interfaces" },
   { slug: "landing-page", name: "Landing page" },
+  { slug: "mobile-apps", name: "Mobile apps" },
+  { slug: "dashboards", name: "Dashboards" },
   { slug: "interactions", name: "Interactions" },
   { slug: "product", name: "Product" },
   { slug: "typography", name: "Typography" },
