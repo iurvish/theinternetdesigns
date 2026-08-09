@@ -6,8 +6,10 @@ import { db } from "@/lib/db";
 import {
   categories as categoriesTable,
   creators,
+  industries as industriesTable,
   media as mediaTable,
   postCategories,
+  postIndustries,
   posts,
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/require-admin";
@@ -88,6 +90,7 @@ export type PublishInput = {
   title: string;
   caption: string;
   categoryIds: string[];
+  industryIds?: string[];
   /** Admin-reviewed palette per media (same order as tweet.media). */
   mediaColors?: PaletteColor[][];
   /** Autoplay the post's video in the feed (only meaningful for video posts). */
@@ -295,6 +298,7 @@ export type PublishPinInput = {
   title: string;
   caption: string;
   categoryIds: string[];
+  industryIds?: string[];
   mediaColors?: PaletteColor[][];
   autoplayInFeed?: boolean;
   featured?: boolean;
@@ -441,6 +445,18 @@ export async function publishPinPost(
           .filter((cid) => valid.has(cid))
           .map((cid) => ({ postId, categoryId: cid }));
         if (rows.length > 0) await tx.insert(postCategories).values(rows);
+      }
+      if ((input.industryIds?.length ?? 0) > 0) {
+        const validIndustries = await tx
+          .select({ id: industriesTable.id })
+          .from(industriesTable);
+        const validIndustry = new Set(validIndustries.map((i) => i.id));
+        const industryRows = input.industryIds!
+          .filter((iid) => validIndustry.has(iid))
+          .map((iid) => ({ postId, industryId: iid }));
+        if (industryRows.length > 0) {
+          await tx.insert(postIndustries).values(industryRows);
+        }
       }
     });
 
@@ -590,6 +606,18 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
           .filter((cid) => valid.has(cid))
           .map((cid) => ({ postId, categoryId: cid }));
         if (rows.length > 0) await tx.insert(postCategories).values(rows);
+      }
+      if ((input.industryIds?.length ?? 0) > 0) {
+        const validIndustries = await tx
+          .select({ id: industriesTable.id })
+          .from(industriesTable);
+        const validIndustry = new Set(validIndustries.map((i) => i.id));
+        const industryRows = input.industryIds!
+          .filter((iid) => validIndustry.has(iid))
+          .map((iid) => ({ postId, industryId: iid }));
+        if (industryRows.length > 0) {
+          await tx.insert(postIndustries).values(industryRows);
+        }
       }
     });
 

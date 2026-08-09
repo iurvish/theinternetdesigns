@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { AdminSignOutButton } from "./sign-out-button";
+import { SITE_NAME } from "@/lib/site-config";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export default async function AdminProtectedLayout({
     <div className="flex min-h-screen bg-muted/30">
       <aside className="hidden w-56 shrink-0 border-r border-border/60 bg-background p-4 md:block">
         <Link href="/admin" className="mb-6 flex items-center gap-2 text-sm font-semibold">
-          idesigns · admin
+          {SITE_NAME} · admin
         </Link>
         <nav className="flex flex-col gap-1 text-sm">
           <AdminNavLink href="/admin">Dashboard</AdminNavLink>

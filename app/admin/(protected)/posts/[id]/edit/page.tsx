@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { media, postCategories, posts } from "@/lib/db/schema";
+import { media, postCategories, postIndustries, posts } from "@/lib/db/schema";
 import { ensurePublicCategories } from "@/lib/db/ensure-public-categories";
+import { ensureIndustries } from "@/lib/db/ensure-industries";
 import { EditPostForm } from "./edit-form";
 
 export const dynamic = "force-dynamic";
@@ -17,12 +18,18 @@ export default async function EditPostPage({
   const [post] = await db.select().from(posts).where(eq(posts.id, id)).limit(1);
   if (!post) notFound();
 
-  const [cats, currentLinks, mediaRows] = await Promise.all([
+  const [cats, industryRows, currentLinks, industryLinks, mediaRows] =
+    await Promise.all([
     ensurePublicCategories(),
+    ensureIndustries(),
     db
       .select({ categoryId: postCategories.categoryId })
       .from(postCategories)
       .where(eq(postCategories.postId, id)),
+    db
+      .select({ industryId: postIndustries.industryId })
+      .from(postIndustries)
+      .where(eq(postIndustries.postId, id)),
     db
       .select({
         id: media.id,
@@ -59,7 +66,9 @@ export default async function EditPostPage({
         initialInteraction={post.interaction ?? null}
         hasVideo={post.hasVideo}
         initialCategoryIds={currentLinks.map((l) => l.categoryId)}
+        initialIndustryIds={industryLinks.map((l) => l.industryId)}
         categories={cats}
+        industries={industryRows}
         media={mediaItems}
       />
     </div>

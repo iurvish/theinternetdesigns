@@ -43,6 +43,20 @@
       "when": 1785298070754,
       "tag": "0005_source_pinterest",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785298070755,
+      "tag": "0006_industries",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785298070756,
+      "tag": "0007_industries_ensure",
+      "breakpoints": true
     }
   ]
 }

@@ -30,6 +30,7 @@ import { PUBLIC_CATEGORY_NAV } from "@/features/posts/public-categories";
 import { ChoiceChip, ChoiceChipGroup } from "./admin-choice-chips";
 
 type Category = { id: string; name: string; slug: string };
+type Industry = { id: string; name: string; slug: string };
 type Platform = "x" | "pinterest" | "instagram";
 type ReadyPlatform = "x" | "pinterest";
 /** Shared shape for X + Pinterest preview drafts. */
@@ -45,6 +46,7 @@ type DraftItem = {
   title: string;
   caption: string;
   selectedCats: Set<string>;
+  selectedIndustries: Set<string>;
   interaction: string | null;
   featured: boolean;
   hiddenGem: boolean;
@@ -58,7 +60,13 @@ const PLATFORMS: { id: Platform; label: string; ready: boolean }[] = [
   { id: "instagram", label: "Instagram", ready: false },
 ];
 
-export function NewPostForm({ categories }: { categories: Category[] }) {
+export function NewPostForm({
+  categories,
+  industries,
+}: {
+  categories: Category[];
+  industries: Industry[];
+}) {
   const router = useRouter();
   const [platform, setPlatform] = useState<Platform>("x");
   const [urlBlob, setUrlBlob] = useState("");
@@ -226,6 +234,14 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     patchActive({ selectedCats: next });
+  }
+
+  function toggleIndustry(id: string) {
+    if (!active) return;
+    const next = new Set(active.selectedIndustries);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    patchActive({ selectedIndustries: next });
   }
 
   function onPublishOne() {
@@ -520,6 +536,20 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                   </ChoiceChipGroup>
 
                   <ChoiceChipGroup
+                    label="Industry"
+                    hint="Admin only — not on public nav"
+                  >
+                    {industries.map((i) => (
+                      <ChoiceChip
+                        key={i.id}
+                        label={i.name}
+                        active={active.selectedIndustries.has(i.id)}
+                        onClick={() => toggleIndustry(i.id)}
+                      />
+                    ))}
+                  </ChoiceChipGroup>
+
+                  <ChoiceChipGroup
                     label="Interaction"
                     hint="Side panel label"
                   >
@@ -615,6 +645,7 @@ function toDraft(
     title: "",
     caption: post.text,
     selectedCats: new Set(),
+    selectedIndustries: new Set(),
     interaction: null,
     featured: false,
     hiddenGem: false,
@@ -818,6 +849,7 @@ async function publishDraft(draft: DraftItem) {
     title: draft.title,
     caption: draft.caption,
     categoryIds: Array.from(draft.selectedCats),
+    industryIds: Array.from(draft.selectedIndustries),
     mediaColors: draft.palettes,
     autoplayInFeed: draft.autoplayInFeed,
     featured: draft.featured,

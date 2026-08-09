@@ -19,6 +19,7 @@ import {
 } from "../../../new/admin-choice-chips";
 
 type Category = { id: string; name: string; slug: string };
+type Industry = { id: string; name: string; slug: string };
 
 export function EditPostForm({
   postId,
@@ -31,7 +32,9 @@ export function EditPostForm({
   initialInteraction,
   hasVideo,
   initialCategoryIds,
+  initialIndustryIds,
   categories,
+  industries,
   media,
 }: {
   postId: string;
@@ -44,7 +47,9 @@ export function EditPostForm({
   initialInteraction: string | null;
   hasVideo: boolean;
   initialCategoryIds: string[];
+  initialIndustryIds: string[];
   categories: Category[];
+  industries: Industry[];
   media: EditMedia[];
 }) {
   const router = useRouter();
@@ -56,6 +61,9 @@ export function EditPostForm({
   const [hiddenGem, setHiddenGem] = useState(initialHiddenGem);
   const [interaction, setInteraction] = useState<string | null>(initialInteraction);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialCategoryIds));
+  const [selectedIndustries, setSelectedIndustries] = useState<Set<string>>(
+    new Set(initialIndustryIds),
+  );
   const [palettes, setPalettes] = useState<Record<string, PaletteColor[]>>(() =>
     Object.fromEntries(media.map((m) => [m.id, m.colors])),
   );
@@ -77,6 +85,15 @@ export function EditPostForm({
     });
   }
 
+  function toggleIndustry(id: string) {
+    setSelectedIndustries((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   function onSave() {
     startTransition(async () => {
       const res = await updatePost({
@@ -89,6 +106,7 @@ export function EditPostForm({
         hiddenGem,
         interaction,
         categoryIds: Array.from(selected),
+        industryIds: Array.from(selectedIndustries),
         mediaColors: media.map((m) => ({
           mediaId: m.id,
           colors: palettes[m.id] ?? [],
@@ -133,6 +151,17 @@ export function EditPostForm({
               label={c.name}
               active={selected.has(c.id)}
               onClick={() => toggle(c.id)}
+            />
+          ))}
+        </ChoiceChipGroup>
+
+        <ChoiceChipGroup label="Industry" hint="Admin only — not on public nav">
+          {industries.map((i) => (
+            <ChoiceChip
+              key={i.id}
+              label={i.name}
+              active={selectedIndustries.has(i.id)}
+              onClick={() => toggleIndustry(i.id)}
             />
           ))}
         </ChoiceChipGroup>

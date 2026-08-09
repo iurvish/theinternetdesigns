@@ -157,6 +157,36 @@ export const postCategories = pgTable(
   ],
 );
 
+/** Admin-only industry tags (Agency, SaaS, Fintech, etc.) — not public nav categories. */
+export const industries = pgTable(
+  "industries",
+  {
+    id: text("id").primaryKey(),
+    slug: varchar("slug", { length: 100 }).notNull(),
+    name: varchar("name", { length: 100 }).notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("industries_slug_uniq").on(t.slug)],
+);
+
+export const postIndustries = pgTable(
+  "post_industries",
+  {
+    postId: text("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    industryId: text("industry_id")
+      .notNull()
+      .references(() => industries.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.postId, t.industryId] }),
+    index("post_industries_industry_idx").on(t.industryId),
+  ],
+);
+
 /**
  * Global key/value settings, edited from the admin panel. Currently holds the
  * "feed autoplay" flag; kept generic so future toggles reuse the same table.
@@ -178,6 +208,9 @@ export type NewPost = typeof posts.$inferInsert;
 export type Media = typeof media.$inferSelect;
 export type NewMedia = typeof media.$inferInsert;
 export type PostCategory = typeof postCategories.$inferSelect;
+export type Industry = typeof industries.$inferSelect;
+export type NewIndustry = typeof industries.$inferInsert;
+export type PostIndustry = typeof postIndustries.$inferSelect;
 
 /** Ambient SQL fragment for FTS — used when we add a generated column via SQL migration. */
 export const postSearchExpression = sql`

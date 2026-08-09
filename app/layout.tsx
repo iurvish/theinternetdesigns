@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { publicEnv } from "@/lib/env";
+import { buildSiteMetadata } from "@/lib/site-config";
 import "./globals.css";
 
 // Inter is the whole site's typeface (variable font → every weight). Exposed as
@@ -15,14 +17,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: "idesigns — X design inspiration",
-    template: "%s · idesigns",
-  },
-  description:
-    "A curated gallery of the best design work shared on X — landing pages, dashboards, mobile UI, motion, and more.",
-};
+export const metadata: Metadata = buildSiteMetadata(
+  publicEnv.NEXT_PUBLIC_SITE_URL,
+);
 
 export default function RootLayout({
   children,

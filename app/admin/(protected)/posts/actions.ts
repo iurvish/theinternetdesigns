@@ -4,8 +4,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   categories as categoriesTable,
+  industries as industriesTable,
   media as mediaTable,
   postCategories,
+  postIndustries,
   posts,
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/require-admin";
@@ -62,6 +64,7 @@ export type UpdatePostInput = {
   hiddenGem: boolean;
   interaction: string | null;
   categoryIds: string[];
+  industryIds?: string[];
   /** Admin-edited colour palettes, keyed by media id. */
   mediaColors?: { mediaId: string; colors: PaletteColor[] }[];
 };
@@ -105,6 +108,20 @@ export async function updatePost(input: UpdatePostInput): Promise<ActionResult> 
           categoryId: c.id,
         }));
         if (rows.length > 0) await tx.insert(postCategories).values(rows);
+      }
+
+      await tx.delete(postIndustries).where(eq(postIndustries.postId, input.postId));
+
+      if ((input.industryIds?.length ?? 0) > 0) {
+        const valid = await tx
+          .select({ id: industriesTable.id })
+          .from(industriesTable)
+          .where(inArray(industriesTable.id, input.industryIds!));
+        const rows = valid.map((i) => ({
+          postId: input.postId,
+          industryId: i.id,
+        }));
+        if (rows.length > 0) await tx.insert(postIndustries).values(rows);
       }
     });
 

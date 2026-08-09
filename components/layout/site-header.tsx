@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SearchInput } from "@/components/layout/search-input";
+import { SITE_NAME } from "@/lib/site-config";
 
 export function SiteHeader() {
   return (
@@ -9,7 +10,7 @@ export function SiteHeader() {
           href="/"
           className="text-base font-semibold tracking-tight text-foreground"
         >
-          idesigns
+          {SITE_NAME}
         </Link>
         <div className="ml-auto flex flex-1 items-center justify-end gap-3 md:flex-none md:w-96">
           <SearchInput />

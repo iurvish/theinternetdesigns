@@ -7,6 +7,9 @@ import { PUBLIC_CATEGORY_NAV } from "@/features/posts/public-categories";
 import { SetupRequired } from "@/components/setup-required";
 import { PaperCurl } from "@/components/paper-curl";
 import { HeroWordmark } from "@/components/hero-wordmark";
+import { homePageMetadata } from "@/lib/site-config";
+
+export const metadata = homePageMetadata;
 
 export default function HomePage() {
   return (
