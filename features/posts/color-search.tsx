@@ -9,6 +9,47 @@ import { cn } from "@/lib/utils";
 
 const MAX_COLORS = 2;
 
+/** Paper nodes 90-0 / AG-0 — split colour-tag segments */
+const TAG_SEGMENT_SHADOW =
+  "shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
+
+const tagSegmentClass =
+  "flex shrink-0 items-center justify-center overflow-hidden bg-white";
+
+/** Toolbar swatch — Paper node BI-0 / BJ-0 (20×20 inside 38×38 segment) */
+function TagSwatchChip({
+  color,
+  onClick,
+  onRemove,
+}: {
+  color: string;
+  onClick?: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="group/swatch relative shrink-0">
+      <button
+        type="button"
+        onClick={onClick}
+        className="block size-5 overflow-hidden rounded-md border border-black/10"
+        style={{ backgroundColor: color }}
+        aria-label={`Colour ${color}`}
+      />
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        aria-label={`Remove ${color}`}
+        className="absolute -right-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-[#1f2123] text-white shadow-sm"
+      >
+        <X className="size-2" strokeWidth={2.5} />
+      </button>
+    </div>
+  );
+}
+
 /* ── colour math ────────────────────────────────────────────────────────── */
 type HSV = { h: number; s: number; v: number };
 
@@ -147,7 +188,6 @@ export function ColorSearch({
 
   const current = hsvToHex(hsv);
   const hasSelection = selected.length > 0;
-  const canAddMore = selected.length < MAX_COLORS;
 
   const draftRef = useRef<string[]>(selected);
   const editIdxRef = useRef(selected.length);
@@ -227,6 +267,13 @@ export function ColorSearch({
     }
   };
 
+  const clearAll = () => {
+    writeDraft([]);
+    setEdit(0);
+    onSelected([]);
+    setOpen(false);
+  };
+
   const removeSelected = (idx: number) => {
     const next = selected.filter((_, i) => i !== idx);
     writeDraft(next);
@@ -293,49 +340,62 @@ export function ColorSearch({
 
   const hasEyedropper = typeof window !== "undefined" && "EyeDropper" in window;
 
+  const atMaxColors = selected.length >= MAX_COLORS;
+
   return (
     <div ref={rootRef} className="relative">
-      {/* Toolbar trigger — height/padding aligned with SortMenu ("Recently") */}
-      <div
-        className={cn(
-          "flex min-h-[36px] items-center gap-1.5 rounded-3xl bg-[#f9f9fa] px-2.5 py-2 shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] sm:min-h-[40px] sm:gap-2 sm:px-3 sm:py-2.5",
-        )}
-      >
-        {hasSelection ? (
-          <>
-            <div className="flex items-center gap-1">
-              {selected.map((c, i) => (
-                <ColorSwatch
-                  key={`${c}-${i}`}
-                  color={c}
-                  onClick={() => openPickerAt(i)}
-                  onRemove={() => removeSelected(i)}
-                />
-              ))}
-            </div>
-            {canAddMore ? (
-              <button
-                type="button"
-                onClick={() => openPicker(true)}
-                aria-label="Add another colour"
-                className="flex size-6 shrink-0 items-center justify-center rounded-[6px] text-[#9a9a9d] transition-colors hover:bg-[#ececec] hover:text-[#1f2123] active:scale-[0.94] motion-reduce:active:scale-100"
-              >
-                <Plus className="size-4" strokeWidth={2.4} />
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => openPicker()}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            aria-label="Search by colour"
-            className="flex items-center px-0.5 active:scale-[0.97] motion-reduce:active:scale-100"
-          >
-            <ColorDotsIcon className="size-[18px] sm:size-5" />
-          </button>
-        )}
+      {/* Split tag — Paper nodes AN-0 / AT-0 */}
+      <div className="flex items-stretch gap-px">
+        <button
+          type="button"
+          onClick={() => (hasSelection ? openPickerAt(0) : openPicker())}
+          onMouseEnter={() => !hasSelection && setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          aria-label={hasSelection ? "Edit colours" : "Search by colour"}
+          className={cn(
+            tagSegmentClass,
+            "relative overflow-visible rounded-l-xl transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
+            hasSelection
+              ? selected.length === 1
+                ? "size-[38px] p-2"
+                : "h-[38px] gap-2 px-2 py-2"
+              : "size-[38px] p-2",
+            TAG_SEGMENT_SHADOW,
+          )}
+        >
+          {hasSelection ? (
+            selected.map((c, i) => (
+              <TagSwatchChip
+                key={`${c}-${i}`}
+                color={c}
+                onClick={() => openPickerAt(i)}
+                onRemove={() => removeSelected(i)}
+              />
+            ))
+          ) : (
+            <ColorDotsIcon className="size-[22px]" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (atMaxColors) clearAll();
+            else openPicker(hasSelection);
+          }}
+          aria-label={atMaxColors ? "Clear colours" : "Add colour"}
+          className={cn(
+            tagSegmentClass,
+            "size-[38px] rounded-r-xl px-2 py-2.5 transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
+            TAG_SEGMENT_SHADOW,
+          )}
+        >
+          {atMaxColors ? (
+            <X className="size-[18px] text-[#707275]" strokeWidth={1.5} />
+          ) : (
+            <Plus className="size-5 text-[#707275]" strokeWidth={1.5} />
+          )}
+        </button>
       </div>
 
       <AnimatePresence>

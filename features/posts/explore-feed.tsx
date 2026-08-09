@@ -13,14 +13,17 @@ import Image from "next/image";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
   ArrowUpRight,
+  Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
 import { ColorSearch } from "./color-search";
+import {
+  FeedMediaNav,
+  NAV_OPEN_AFFORDANCE_CLASS,
+} from "./media-nav-pill";
 import { searchByColorsAction } from "./color-search-action";
 import { loadFeedPageAction } from "./feed-actions";
 import { SetupRequired } from "@/components/setup-required";
@@ -429,7 +432,11 @@ function Divider({ className }: { className?: string }) {
 }
 
 const POPOVER_SHADOW =
-  "shadow-[0px_0px_0px_1px_rgba(0,0,0,0.06),0px_2px_6px_-2px_rgba(0,0,0,0.08),0px_14px_36px_-10px_rgba(0,0,0,0.22)]";
+  "shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04),0_14px_36px_-10px_rgba(0,0,0,0.12)]";
+
+/** Paper node 8B-0 — Recently sort trigger */
+const SORT_TRIGGER_SHADOW =
+  "shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04),0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
 
 function PillRail({
   categories,
@@ -547,12 +554,15 @@ function SortMenu({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-26 items-center justify-between overflow-hidden rounded-3xl bg-[#f9f9fa] p-2 text-[13px] tracking-tight text-[#1f2123] shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] sm:w-30 sm:p-2.5 sm:text-sm"
+        className={cn(
+          "flex w-[169px] items-center justify-between overflow-hidden rounded-[22px] bg-[#f9f9fa] p-2.5 text-sm tracking-[-0.015em] text-[#1f2123] sm:w-30",
+          SORT_TRIGGER_SHADOW,
+        )}
       >
         <span className="whitespace-nowrap">{SORT_LABELS[value]}</span>
         <ChevronDown
           className={cn(
-            "size-3.5 text-[#5c5c5e] transition-transform",
+            "size-3.5 shrink-0 text-[#5c5c5e] transition-transform",
             open && "rotate-180",
           )}
         />
@@ -560,34 +570,39 @@ function SortMenu({
       <AnimatePresence>
         {open ? (
           <motion.div
-            // Scales from the trigger (top-right), not centre — origin-aware
-            // dropdown entrance, ease-out, 180ms (dropdown budget).
             initial={{ opacity: 0, scale: 0.96, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -4 }}
             transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top right" }}
             className={cn(
-              "absolute right-0 top-full z-50 mt-1.5 w-26 overflow-hidden rounded-xl bg-white p-1 sm:w-30",
+              "absolute right-0 top-full z-50 mt-1.5 w-[169px] overflow-hidden rounded-xl bg-white p-1 sm:w-30",
               POPOVER_SHADOW,
             )}
           >
-            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => {
-                  onChange(k);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm tracking-tight transition-colors hover:bg-[#f2f2f2]",
-                  value === k ? "text-[#1f2123]" : "text-[#707275]",
-                )}
-              >
-                {SORT_LABELS[k]}
-              </button>
-            ))}
+            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => {
+              const active = value === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => {
+                    onChange(k);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm tracking-[-0.015em] transition-colors hover:bg-[#f2f2f2]"
+                >
+                  <span className={active ? "text-[#1f2123]" : "text-[#707275]"}>
+                    {SORT_LABELS[k]}
+                  </span>
+                  {active ? (
+                    <Check className="size-4 shrink-0 text-[#1f2123]" strokeWidth={2} />
+                  ) : (
+                    <span className="size-4 shrink-0" aria-hidden />
+                  )}
+                </button>
+              );
+            })}
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -788,14 +803,19 @@ function MasonryCard({
         ) : null}
       </div>
 
-      {/* top-left: open affordance (hover) */}
-      <span className="pointer-events-none absolute left-2.5 top-2.5 flex items-center rounded-full bg-[#c4c4c5]/60 p-1.5 opacity-0 shadow-[inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px] transition-opacity duration-200 group-hover:opacity-100">
-        <ArrowUpRight className="size-4.5 text-white" strokeWidth={2.2} />
+      {/* top-left: open affordance (hover) — Paper node CL-0 */}
+      <span
+        className={cn(
+          "pointer-events-none absolute left-2.5 top-2.5 flex items-center rounded-[99px] p-1.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100",
+          NAV_OPEN_AFFORDANCE_CLASS,
+        )}
+      >
+        <ArrowUpRight className="size-[18px] text-white" strokeWidth={1.8} />
       </span>
 
       {/* top-right: hover media navigator for multi-image / video galleries */}
       {isGallery ? (
-        <MediaNav
+        <FeedMediaNav
           count={mediaCount}
           index={mediaIdx}
           hovered={hovered}
@@ -880,86 +900,6 @@ function CardVideo({
         play ? "opacity-100" : "opacity-0",
       )}
     />
-  );
-}
-
-/**
- * Hover media navigator (Figma node 26:75). At rest it's the compact count pill.
- * On card hover the chevrons expand out from the sides — only the pill's *width*
- * grows (each chevron animates its own width 0 → full), so the number itself never
- * scales, it just gets flanked. Each chevron fills with a grey disc on its own
- * hover, and clicks page the card's media without opening the lightbox.
- */
-function MediaNav({
-  count,
-  index,
-  hovered,
-  onPrev,
-  onNext,
-}: {
-  count: number;
-  index: number;
-  hovered: boolean;
-  onPrev: () => void;
-  onNext: () => void;
-}) {
-  return (
-    <div
-      onClick={(e) => e.stopPropagation()}
-      className="pointer-events-auto absolute right-2.5 top-2.5 flex items-center rounded-full bg-[#c4c4c5]/65 p-0.5 px-1.5 text-white shadow-[0_0_0_0.3px_rgba(0,0,0,0.06),0_3px_6px_-2px_rgba(0,0,0,0.04),inset_0_0_53px_1px_rgba(255,255,255,0.25)] backdrop-blur-[2px]"
-    >
-      <NavChevron
-        side="left"
-        show={hovered}
-        disabled={index === 0}
-        onClick={onPrev}
-      />
-
-      <span className="min-w-5 px-1 text-center text-[15px] font-medium leading-none tabular-nums tracking-tight">
-        {hovered ? index + 1 : count}
-      </span>
-
-      <NavChevron
-        side="right"
-        show={hovered}
-        disabled={index === count - 1}
-        onClick={onNext}
-      />
-    </div>
-  );
-}
-
-function NavChevron({
-  side,
-  show,
-  disabled,
-  onClick,
-}: {
-  side: "left" | "right";
-  show: boolean;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  const Icon = side === "left" ? ChevronLeft : ChevronRight;
-  return (
-    <motion.button
-      type="button"
-      aria-label={side === "left" ? "Previous image" : "Next image"}
-      disabled={disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!disabled) onClick();
-      }}
-      // Width animates 0 → 28px so the pill only grows sideways — the number never
-      // scales. Overflow-clip hides the icon while collapsed.
-      initial={false}
-      animate={{ width: show ? 28 : 0, opacity: show ? 1 : 0 }}
-      transition={NAV_SPRING}
-      whileTap={disabled || !show ? undefined : { scale: 0.86 }}
-      className="flex h-7 shrink-0 items-center justify-center overflow-clip rounded-full transition-colors duration-150 hover:bg-[#b7b7b8] disabled:opacity-35 disabled:hover:bg-transparent"
-    >
-      <Icon className="size-3.5 shrink-0" strokeWidth={2.4} />
-    </motion.button>
   );
 }
 

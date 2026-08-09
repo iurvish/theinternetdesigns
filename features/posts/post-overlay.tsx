@@ -4,9 +4,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
+import { OverlayMediaNav } from "./media-nav-pill";
 import {
   playMediaSwitch,
   playOverlayClose,
@@ -77,6 +78,8 @@ export function PostOverlay({
   const [fastNav, setFastNav] = useState(false);
   const lastNavRef = useRef(0);
   const navResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navShakeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [navShake, setNavShake] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isMobile, setIsMobile] = useState(
     () =>
@@ -218,6 +221,12 @@ export function PostOverlay({
     [goMedia],
   );
 
+  const bumpNav = useCallback(() => {
+    setNavShake(true);
+    if (navShakeRef.current) clearTimeout(navShakeRef.current);
+    navShakeRef.current = setTimeout(() => setNavShake(false), 420);
+  }, []);
+
   const goPost = useCallback(
     (d: number) => {
       const nextI = index + d;
@@ -232,13 +241,15 @@ export function PostOverlay({
   // the neighbouring post once you run off either end.
   const goBack = useCallback(() => {
     if (mediaIndex > 0) goMedia(-1);
-    else goPost(-1);
-  }, [mediaIndex, goMedia, goPost]);
+    else if (index > 0) goPost(-1);
+    else bumpNav();
+  }, [mediaIndex, index, goMedia, goPost, bumpNav]);
 
   const goForward = useCallback(() => {
     if (mediaIndex < mediaCount - 1) goMedia(1);
-    else goPost(1);
-  }, [mediaIndex, mediaCount, goMedia, goPost]);
+    else if (index < posts.length - 1) goPost(1);
+    else bumpNav();
+  }, [mediaIndex, mediaCount, index, posts.length, goMedia, goPost, bumpNav]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -260,17 +271,13 @@ export function PostOverlay({
     return () => {
       window.removeEventListener("keydown", onKey);
       if (navResetRef.current) clearTimeout(navResetRef.current);
+      if (navShakeRef.current) clearTimeout(navShakeRef.current);
       document.body.style.overflow = prevOverflow;
     };
   }, [goBack, goForward, goPost, requestClose]);
 
   if (!post) return null;
 
-  const atStart = mediaIndex === 0 && index === 0;
-  const atEnd = mediaIndex >= mediaCount - 1 && index === posts.length - 1;
-
-  // Frame sized to the post's aspect (from its first media) and fitted to the
-  // stage; every slide shares this frame so the carousel reads uniformly.
   const aspect =
     media[0]?.width && media[0]?.height ? media[0].width / media[0].height : 4 / 3;
   // Mobile keeps the frame narrower than the stage so the previous/next media peek
@@ -442,25 +449,12 @@ export function PostOverlay({
             animate={{ opacity: 1, y: 0 }}
             transition={FADE}
           >
-            <ControlButton
-              onClick={goBack}
-              label={mediaIndex > 0 ? "Previous media" : "Previous post"}
-              disabled={atStart}
-            >
-              <ChevronLeft className="size-4" />
-            </ControlButton>
-            {mediaCount > 1 ? (
-              <span className="min-w-12 text-center text-sm font-medium tabular-nums text-white/90">
-                {mediaIndex + 1} / {mediaCount}
-              </span>
-            ) : null}
-            <ControlButton
-              onClick={goForward}
-              label={mediaIndex < mediaCount - 1 ? "Next media" : "Next post"}
-              disabled={atEnd}
-            >
-              <ChevronRight className="size-4" />
-            </ControlButton>
+            <OverlayMediaNav
+              shake={navShake}
+              label={mediaCount > 1 ? String(mediaIndex + 1) : null}
+              onBack={goBack}
+              onForward={goForward}
+            />
           </motion.div>
         ) : null}
       </div>
@@ -677,32 +671,6 @@ function PostInfoContent({ post }: { post: PostListItem }) {
         ) : null}
       </div>
     </>
-  );
-}
-
-function ControlButton({
-  onClick,
-  label,
-  disabled,
-  children,
-}: {
-  onClick: () => void;
-  label: string;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      whileTap={{ scale: 0.9 }}
-      transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
-      className="flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 backdrop-blur-md transition-colors hover:bg-white/20 disabled:opacity-30"
-    >
-      {children}
-    </motion.button>
   );
 }
 
