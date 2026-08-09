@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VideoPlayer } from "@/components/video-player";
 import { cn } from "@/lib/utils";
+import { Sparkles } from "lucide-react";
 import {
   fetchBulkPinPreviews,
   fetchBulkPreviews,
@@ -18,6 +19,7 @@ import {
   publishPinPost,
   publishPost,
 } from "./actions";
+import { classifyPostTagsAction } from "./classify-actions";
 import type {
   NormalizedTweet,
   TweetMedia,
@@ -76,6 +78,8 @@ export function NewPostForm({
   const [mediaIndex, setMediaIndex] = useState(0);
   const [previewPending, startPreview] = useTransition();
   const [publishPending, startPublish] = useTransition();
+  const [aiClassifyPending, startAiClassify] = useTransition();
+  const [aiTagError, setAiTagError] = useState<string | null>(null);
 
   const publicCats = useMemo(() => {
     const order = new Map(PUBLIC_CATEGORY_NAV.map((c, i) => [c.slug, i]));
@@ -92,6 +96,7 @@ export function NewPostForm({
 
   useEffect(() => {
     setMediaIndex(0);
+    setAiTagError(null);
   }, [active?.sourceId]);
 
   function selectPlatform(next: Platform) {
@@ -234,6 +239,7 @@ export function NewPostForm({
     if (next.has(id)) next.delete(id);
     else next.add(id);
     patchActive({ selectedCats: next });
+    setAiTagError(null);
   }
 
   function toggleIndustry(id: string) {
@@ -242,6 +248,56 @@ export function NewPostForm({
     if (next.has(id)) next.delete(id);
     else next.add(id);
     patchActive({ selectedIndustries: next });
+    setAiTagError(null);
+  }
+
+  function onAiSuggestTags() {
+    if (!active) return;
+    const media = active.post.media[activeMediaIndex];
+    if (!media) {
+      setAiTagError("No media to analyze on this post.");
+      return;
+    }
+    const imageUrl =
+      media.kind === "image" ? media.url : media.posterUrl ?? null;
+    if (!imageUrl) {
+      setAiTagError(
+        "No still image to analyze — use a post with an image or video poster, then try again.",
+      );
+      return;
+    }
+
+    setAiTagError(null);
+    startAiClassify(async () => {
+      const res = await classifyPostTagsAction({
+        imageUrl,
+        caption: active.caption.trim() || undefined,
+      });
+      if (!res.ok) {
+        setAiTagError(res.error);
+        toast.error("AI tagging failed — pick categories manually.");
+        return;
+      }
+
+      patchActive({
+        selectedCats: new Set(res.categoryIds),
+        selectedIndustries: new Set(res.industryIds),
+      });
+      setAiTagError(null);
+
+      const parts: string[] = [];
+      if (res.categoryIds.length > 0) {
+        parts.push(
+          `${res.categoryIds.length} categor${res.categoryIds.length === 1 ? "y" : "ies"}`,
+        );
+      }
+      if (res.industryIds.length > 0) {
+        parts.push(
+          `${res.industryIds.length} industr${res.industryIds.length === 1 ? "y" : "ies"}`,
+        );
+      }
+      toast.success(`AI suggested ${parts.join(" and ")}.`);
+    });
   }
 
   function onPublishOne() {
@@ -519,6 +575,37 @@ export function NewPostForm({
                       onChange={(e) => patchActive({ caption: e.target.value })}
                       rows={5}
                     />
+                  </div>
+
+                  <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-muted/30 p-3.5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">AI tag suggestions</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Analyzes the current preview frame and pre-selects category
+                          + industry chips. You can still edit before publishing.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 gap-1.5"
+                        disabled={aiClassifyPending || publishPending}
+                        onClick={onAiSuggestTags}
+                      >
+                        <Sparkles className="size-3.5" aria-hidden />
+                        {aiClassifyPending ? "Analyzing…" : "Suggest with AI"}
+                      </Button>
+                    </div>
+                    {aiTagError ? (
+                      <p
+                        role="alert"
+                        className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+                      >
+                        {aiTagError}
+                      </p>
+                    ) : null}
                   </div>
 
                   <ChoiceChipGroup
