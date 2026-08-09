@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ChevronDown, ExternalLink } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { OverlayMediaNav } from "./media-nav-pill";
@@ -278,14 +278,17 @@ export function PostOverlay({
 
   if (!post) return null;
 
+  const atStart = mediaIndex === 0 && index === 0;
+  const atEnd = mediaIndex >= mediaCount - 1 && index === posts.length - 1;
+
   const aspect =
     media[0]?.width && media[0]?.height ? media[0].width / media[0].height : 4 / 3;
   // Mobile keeps the frame narrower than the stage so the previous/next media peek
   // in at both edges exactly like desktop, rather than sitting on a flat backdrop.
-  let frameW = stage.w * (isMobile ? 0.68 : 0.58);
+  let frameW = stage.w * (isMobile ? 0.92 : 0.58);
   let frameH = frameW / aspect;
-  // Leave room under the frame for the arrow bar.
-  const maxH = stage.h * (isMobile ? 0.78 : 0.8);
+  // Mobile: taller frame — compact info drawer leaves room for the preview.
+  const maxH = stage.h * (isMobile ? 0.58 : 0.8);
   if (frameH > maxH) {
     frameH = maxH;
     frameW = frameH * aspect;
@@ -451,6 +454,8 @@ export function PostOverlay({
           >
             <OverlayMediaNav
               shake={navShake}
+              atStart={atStart}
+              atEnd={atEnd}
               label={mediaCount > 1 ? String(mediaIndex + 1) : null}
               onBack={goBack}
               onForward={goForward}
@@ -462,9 +467,9 @@ export function PostOverlay({
       {/* Info — bottom drawer on mobile, right sidebar on desktop */}
       <motion.aside
         className={cn(
-          "z-30 flex shrink-0 flex-col gap-4 overflow-y-auto bg-[#f7f7f7] p-4",
-          "max-h-[42vh] rounded-t-2xl border-t border-[#e3e5e8] shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]",
-          "md:absolute md:inset-y-0 md:right-0 md:w-[340px] md:max-h-none md:rounded-none md:border-l md:border-t-0 md:shadow-none",
+          "z-30 flex shrink-0 flex-col bg-[#f7f7f7]",
+          "rounded-t-2xl border-t border-[#e3e5e8] shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]",
+          "md:absolute md:inset-y-0 md:right-0 md:w-[340px] md:overflow-y-auto md:rounded-none md:border-l md:border-t-0 md:p-4 md:shadow-none",
         )}
         initial={isMobile ? { y: "100%", opacity: 0 } : { x: 360, opacity: 0 }}
         animate={
@@ -474,8 +479,7 @@ export function PostOverlay({
         }
         transition={DRAWER}
       >
-        <div aria-hidden className="mx-auto h-1 w-10 shrink-0 rounded-full bg-[#d1d3d6] md:hidden" />
-        <PostInfoContent post={post} />
+        <PostInfoContent post={post} compact={isMobile} />
       </motion.aside>
     </div>
   );
@@ -600,77 +604,187 @@ function StageImage({
   );
 }
 
-function PostInfoContent({ post }: { post: PostListItem }) {
+function PostInfoContent({
+  post,
+  compact = false,
+}: {
+  post: PostListItem;
+  compact?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasMore =
+    Boolean(post.caption) ||
+    post.categories.length > 0 ||
+    Boolean(post.sourceUrl);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [post.id]);
+
+  const creatorRow = (
+    <a
+      href={post.creator.profileUrl ?? "#"}
+      target="_blank"
+      rel="noreferrer"
+      className="flex min-w-0 items-center gap-3"
+    >
+      {post.creator.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={post.creator.avatarUrl}
+          alt={post.creator.displayName}
+          className="size-10 shrink-0 rounded-full object-cover md:size-[42px]"
+          draggable={false}
+        />
+      ) : (
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#e3e5e8] text-sm font-medium text-[#707275] md:size-[42px]">
+          {post.creator.displayName?.[0] ?? "?"}
+        </span>
+      )}
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="truncate text-[15px] font-semibold tracking-tight text-[#1f2123] md:text-base">
+          {post.creator.displayName}
+        </span>
+        <span className="truncate text-sm tracking-tight text-[#707275] md:text-base">
+          @{post.creator.username}
+        </span>
+      </div>
+    </a>
+  );
+
+  const detailsBlock = (
+    <motion.div
+      key={`details-${post.id}`}
+      initial={compact ? { height: 0, opacity: 0 } : false}
+      animate={{ height: "auto", opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
+      className="overflow-hidden"
+    >
+      <div className="flex flex-col gap-3.5 pt-3 md:pt-0">
+        {post.caption ? (
+          <p className="whitespace-pre-wrap text-[15px] leading-5 tracking-tight text-[#222426] md:text-base">
+            {post.caption}
+          </p>
+        ) : null}
+
+        <div className="flex flex-col">
+          <Row label="Source">
+            <Link
+              href={post.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 text-black hover:underline"
+            >
+              X <ExternalLink className="size-3.5" />
+            </Link>
+          </Row>
+          {post.categories.length > 0 ? (
+            <Row label="Category">
+              <span className="text-black">{post.categories[0].name}</span>
+            </Row>
+          ) : null}
+          {post.categories.length > 1 ? (
+            <Row label="Tags">
+              <span className="text-right text-black">
+                {post.categories.slice(1).map((c) => c.name).join(", ")}
+              </span>
+            </Row>
+          ) : null}
+        </div>
+      </div>
+    </motion.div>
+  );
+
+  if (!compact) {
+    return (
+      <div className="flex flex-col gap-4">
+        <motion.div
+          key={post.id}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={FADE}
+          className="flex flex-col gap-3.5"
+        >
+          {creatorRow}
+          {post.caption ? (
+            <p className="whitespace-pre-wrap text-base leading-5 tracking-tight text-[#222426]">
+              {post.caption}
+            </p>
+          ) : null}
+        </motion.div>
+        <div className="flex flex-col">
+          <Row label="Source">
+            <Link
+              href={post.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 text-black hover:underline"
+            >
+              X <ExternalLink className="size-3.5" />
+            </Link>
+          </Row>
+          {post.categories.length > 0 ? (
+            <Row label="Category">
+              <span className="text-black">{post.categories[0].name}</span>
+            </Row>
+          ) : null}
+          {post.categories.length > 1 ? (
+            <Row label="Tags">
+              <span className="text-right text-black">
+                {post.categories.slice(1).map((c) => c.name).join(", ")}
+              </span>
+            </Row>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <>
+    <div
+      className={cn(
+        "flex flex-col px-4 pb-4 pt-2",
+        expanded && "max-h-[46vh] overflow-y-auto",
+      )}
+    >
+      <div aria-hidden className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-[#d1d3d6]" />
+
       <motion.div
         key={post.id}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={FADE}
-        className="flex flex-col gap-3.5"
       >
-        <a
-          href={post.creator.profileUrl ?? "#"}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-3"
-        >
-          {post.creator.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={post.creator.avatarUrl}
-              alt={post.creator.displayName}
-              className="size-[42px] shrink-0 rounded-full object-cover"
-              draggable={false}
-            />
-          ) : (
-            <span className="flex size-[42px] shrink-0 items-center justify-center rounded-full bg-[#e3e5e8] text-sm font-medium text-[#707275]">
-              {post.creator.displayName?.[0] ?? "?"}
-            </span>
-          )}
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate text-base font-semibold tracking-tight text-[#1f2123]">
-              {post.creator.displayName}
-            </span>
-            <span className="truncate text-base tracking-tight text-[#707275]">
-              @{post.creator.username}
-            </span>
-          </div>
-        </a>
-
-        {post.caption ? (
-          <p className="whitespace-pre-wrap text-base leading-5 tracking-tight text-[#222426]">
-            {post.caption}
-          </p>
-        ) : null}
+        {creatorRow}
       </motion.div>
 
-      <div className="flex flex-col">
-        <Row label="Source">
-          <Link
-            href={post.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 text-black hover:underline"
+      {hasMore ? (
+        <div className="mt-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="flex w-full items-center justify-between rounded-xl px-1 py-2 text-left transition-colors active:bg-[#ececec] motion-reduce:active:bg-transparent"
           >
-            X <ExternalLink className="size-3.5" />
-          </Link>
-        </Row>
-        {post.categories.length > 0 ? (
-          <Row label="Category">
-            <span className="text-black">{post.categories[0].name}</span>
-          </Row>
-        ) : null}
-        {post.categories.length > 1 ? (
-          <Row label="Tags">
-            <span className="text-right text-black">
-              {post.categories.slice(1).map((c) => c.name).join(", ")}
+            <span className="text-sm font-medium tracking-tight text-[#707275]">
+              {expanded ? "Less" : "Details"}
             </span>
-          </Row>
-        ) : null}
-      </div>
-    </>
+            <motion.span
+              animate={{ rotate: expanded ? 180 : 0 }}
+              transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
+              className="flex size-7 items-center justify-center rounded-full text-[#707275]"
+            >
+              <ChevronDown className="size-4" strokeWidth={2.2} />
+            </motion.span>
+          </button>
+
+          <AnimatePresence initial={false}>
+            {expanded ? detailsBlock : null}
+          </AnimatePresence>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
