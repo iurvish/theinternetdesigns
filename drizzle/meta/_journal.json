@@ -22,6 +22,13 @@
       "when": 1785298070751,
       "tag": "0002_media_colors",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785298070752,
+      "tag": "0003_post_flags",
+      "breakpoints": true
     }
   ]
 }

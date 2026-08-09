@@ -49,6 +49,25 @@ const SORT_LABELS: Record<SortKey, string> = {
 
 const SORT_ORDER: SortKey[] = ["recent", "hidden_gems", "featured", "oldest"];
 
+const SORT_MENU_WIDTH = "w-[176px]";
+
+/** Paper colour-tag segment — matches ColorSearch toolbar chips */
+const TAG_SEGMENT_SHADOW =
+  "shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
+
+const GITHUB_REPO_URL = "https://github.com/iurvish/idesigns";
+
+/**
+ * Figma 166-230 / Paper Frame 7 — grey stroke on L+R+B, white inset bevel on
+ * all four inner edges. Top grey comes from the hero's bottom border.
+ */
+const FIGMA_TOOLBAR_SHEET =
+  "border-x border-b border-[#e3e5e8] bg-[#f7f7f7] shadow-[inset_1px_0_0_0_#fff,inset_-1px_0_0_0_#fff,inset_0_1px_0_0_#fff,inset_0_-1px_0_0_#fff]";
+
+/** Mobile only — inner row divider (grey + white bevel above the line) */
+const MOBILE_ROW_SPLIT =
+  "border-b border-[#e3e5e8] shadow-[inset_0_-1px_0_0_#fff]";
+
 /**
  * The public "The Internet Designs" explorer — a hero heading, a category
  * filter toolbar, and a Pinterest-style masonry of posts. Ported from Figma
@@ -72,32 +91,51 @@ export function ExploreFeed({
       {/* Filter toolbar — rendered immediately (outside the grid's Suspense) so it
           never blanks out on refresh. Elevated (relative z-30) so its dropdowns
           paint above the grid; drop shadow gives the bar its crisp float. */}
-      <div className="relative z-30 flex w-full flex-col items-start border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] ">
-        {/* Toolbar row. On mobile it wraps to two rows — colour search + sort on
-            top, the category rail full-width below — so nothing gets crushed.
-            From `sm` up it collapses back to the original single, divider-
-            separated row via flex order + nowrap. */}
-        <div className="flex w-full flex-wrap items-center gap-x-3 px-2 sm:flex-nowrap sm:gap-x-4 sm:px-3.5">
-          <div className="order-1 flex shrink-0 items-center py-2.5 sm:py-3.5">
-            <ColorSearch selected={colors} onSelected={setColors} />
+      {/* Plain positioning wrapper — all chrome lives on the inner sheet */}
+      <div className="relative z-30 w-full">
+        <div className={FIGMA_TOOLBAR_SHEET}>
+          {/* Mobile — two rows: controls, then categories */}
+          <div className="flex flex-col sm:hidden">
+            <div
+              className={cn(
+                "flex items-center justify-between gap-3 px-2 py-2.5",
+                MOBILE_ROW_SPLIT,
+              )}
+            >
+              <ColorSearch selected={colors} onSelected={setColors} />
+              <div className="flex shrink-0 items-center gap-2">
+                <SortMenu value={sort} onChange={setSort} />
+                <GitHubStarLink />
+              </div>
+            </div>
+            <PillRail
+              categories={categories}
+              active={active}
+              onSelect={setActive}
+            />
           </div>
 
-          <Divider className="order-2 hidden sm:block" />
+          {/* Desktop — single row: colour | categories | filter */}
+          <div className="hidden items-stretch gap-x-4 px-3.5 sm:flex">
+            <div className="flex shrink-0 items-center py-3.5">
+              <ColorSearch selected={colors} onSelected={setColors} />
+            </div>
 
-          {/* On mobile the rail sits on its own row, so it bleeds past the toolbar's
-              horizontal padding — otherwise its top hairline stops short of the
-              container's left/right borders. */}
-          <PillRail
-            categories={categories}
-            active={active}
-            onSelect={setActive}
-            className="order-3 -mx-2 w-[calc(100%+1rem)] basis-[calc(100%+1rem)] border-t border-[#e3e5e8] sm:mx-0 sm:w-auto sm:basis-auto sm:flex-1 sm:border-0"
-          />
+            <Divider />
 
-          <Divider className="order-4 hidden sm:block" />
+            <PillRail
+              categories={categories}
+              active={active}
+              onSelect={setActive}
+              className="min-w-0 flex-1"
+            />
 
-          <div className="order-2 ml-auto flex shrink-0 items-center py-2.5 sm:order-5 sm:ml-0 sm:py-3.5">
-            <SortMenu value={sort} onChange={setSort} />
+            <Divider />
+
+            <div className="flex shrink-0 items-center gap-2 py-3.5">
+              <SortMenu value={sort} onChange={setSort} />
+              <GitHubStarLink />
+            </div>
           </div>
         </div>
       </div>
@@ -443,6 +481,9 @@ const POPOVER_SHADOW =
 const SORT_TRIGGER_SHADOW =
   "shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04),0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
 
+/** Paper node 6X-0 — category scroll fade (38px) */
+const CATEGORY_EDGE_FADE = "w-[38px] from-[#f7f7f7]";
+
 function PillRail({
   categories,
   active,
@@ -477,10 +518,10 @@ function PillRail({
   }, [categories]);
 
   return (
-    <div className={cn("relative min-w-0", className)}>
+    <div className={cn("relative min-w-0 self-stretch", className)}>
       <div
         ref={scrollRef}
-        className="flex items-center gap-2 overflow-x-auto px-2 py-2.5 [scrollbar-width:none] sm:gap-3 sm:px-0 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
+        className="flex h-full items-center gap-2 overflow-x-auto px-2 py-2.5 [scrollbar-width:none] sm:gap-3 sm:px-0 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
       >
         <Pill
           label="All"
@@ -496,16 +537,18 @@ function PillRail({
           />
         ))}
       </div>
-      {/* Balanced edge fades — left appears once scrolled, right hides at the end */}
+      {/* Paper 6X-0 — edge fades when the rail scrolls */}
       <div
         className={cn(
-          "pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-[#f7f7f7] to-transparent transition-opacity duration-200",
+          "pointer-events-none absolute inset-y-0 left-0 z-[1] bg-gradient-to-r to-transparent transition-opacity duration-200",
+          CATEGORY_EDGE_FADE,
           edges.left ? "opacity-100" : "opacity-0",
         )}
       />
       <div
         className={cn(
-          "pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[#f7f7f7] to-transparent transition-opacity duration-200",
+          "pointer-events-none absolute inset-y-0 right-0 z-[1] bg-gradient-to-l to-transparent transition-opacity duration-200",
+          CATEGORY_EDGE_FADE,
           edges.right ? "opacity-100" : "opacity-0",
         )}
       />
@@ -560,7 +603,8 @@ function SortMenu({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "flex w-[169px] items-center justify-between overflow-hidden rounded-[22px] bg-[#f9f9fa] p-2.5 text-sm tracking-[-0.015em] text-[#1f2123] sm:w-[7.5rem]",
+          "flex items-center justify-between overflow-hidden rounded-[22px] bg-[#f9f9fa] p-2.5 text-sm tracking-[-0.015em] text-[#1f2123]",
+          SORT_MENU_WIDTH,
           SORT_TRIGGER_SHADOW,
         )}
       >
@@ -581,7 +625,8 @@ function SortMenu({
             transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top right" }}
             className={cn(
-              "absolute right-0 top-full z-50 mt-1.5 w-[169px] overflow-hidden rounded-xl bg-white p-1 sm:w-[7.5rem]",
+              "absolute right-0 top-full z-50 mt-1.5 overflow-hidden rounded-xl bg-white p-1",
+              SORT_MENU_WIDTH,
               POPOVER_SHADOW,
             )}
           >
@@ -608,6 +653,59 @@ function SortMenu({
                 </button>
               );
             })}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function GitHubIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+      className={className}
+    >
+      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12Z" />
+    </svg>
+  );
+}
+
+function GitHubStarLink() {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <div
+      className="relative shrink-0"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <a
+        href={GITHUB_REPO_URL}
+        target="_blank"
+        rel="noreferrer"
+        aria-label="Star on GitHub"
+        className={cn(
+          "flex size-[38px] items-center justify-center overflow-hidden rounded-xl bg-white text-[#1f2123] transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
+          TAG_SEGMENT_SHADOW,
+        )}
+      >
+        <GitHubIcon className="size-[18px]" />
+      </a>
+
+      <AnimatePresence>
+        {hovered ? (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.96 }}
+            transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
+            style={{ transformOrigin: "top right" }}
+            className="pointer-events-none absolute right-0 top-full z-50 mt-2 whitespace-nowrap rounded-lg bg-[#1f2123] px-2.5 py-1.5 text-xs font-medium text-white shadow-[0_6px_20px_-6px_rgba(0,0,0,0.35)]"
+          >
+            Star on GitHub
           </motion.div>
         ) : null}
       </AnimatePresence>

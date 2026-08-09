@@ -9,9 +9,19 @@ import { sql } from "drizzle-orm";
 import { categories } from "../lib/db/schema";
 
 const CATEGORIES: { slug: string; name: string }[] = [
-  { slug: "landing-pages", name: "Landing Pages" },
-  { slug: "saas", name: "SaaS" },
-  { slug: "ai", name: "AI" },
+  // Public nav categories
+  { slug: "interfaces", name: "Interfaces" },
+  { slug: "landing-page", name: "Landing page" },
+  { slug: "interactions", name: "Interactions" },
+  { slug: "product", name: "Product" },
+  { slug: "typography", name: "Typography" },
+  { slug: "3d", name: "3D" },
+  { slug: "brand-design", name: "Brand design" },
+  { slug: "logo-design", name: "Logo design" },
+  { slug: "illustration", name: "Illustration" },
+  // { slug: "landing-pages", name: "Landing Pages" },
+  // { slug: "saas", name: "SaaS" },
+  // { slug: "ai", name: "AI" },
   { slug: "dashboard", name: "Dashboard" },
   { slug: "mobile-ui", name: "Mobile UI" },
   { slug: "portfolio", name: "Portfolio" },
@@ -19,7 +29,6 @@ const CATEGORIES: { slug: string; name: string }[] = [
   { slug: "animation", name: "Animation" },
   { slug: "interaction", name: "Interaction" },
   { slug: "motion-design", name: "Motion Design" },
-  { slug: "typography", name: "Typography" },
   { slug: "branding", name: "Branding" },
   { slug: "dark-ui", name: "Dark UI" },
   { slug: "light-ui", name: "Light UI" },

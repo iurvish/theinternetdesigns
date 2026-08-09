@@ -1,9 +1,9 @@
-import { asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { categories } from "@/lib/db/schema";
 import { getRecentPosts } from "@/features/posts/queries";
 import type { PostListItem } from "@/features/posts/queries";
 import { ExploreFeed, type PostsResult } from "@/features/posts/explore-feed";
+import { PUBLIC_CATEGORY_NAV } from "@/features/posts/public-categories";
 import { SetupRequired } from "@/components/setup-required";
 import { PaperCurl } from "@/components/paper-curl";
 import { HeroWordmark } from "@/components/hero-wordmark";
@@ -33,12 +33,9 @@ export default function HomePage() {
  * promise and streamed into the grid via a Suspense boundary inside ExploreFeed.
  */
 async function HomeShell() {
-  let cats: { slug: string; name: string }[];
   try {
-    cats = await db
-      .select({ slug: categories.slug, name: categories.name })
-      .from(categories)
-      .orderBy(asc(categories.sortOrder));
+    // Sanity check — categories table reachable before streaming posts.
+    await db.select({ slug: categories.slug }).from(categories).limit(1);
   } catch (err) {
     return (
       <div className="w-full border-r border-b border-l border-[#e3e5e8] p-3.5 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]">
@@ -56,5 +53,7 @@ async function HomeShell() {
       error: err instanceof Error ? err.message : String(err),
     }));
 
-  return <ExploreFeed categories={cats} postsPromise={postsPromise} />;
+  return (
+    <ExploreFeed categories={PUBLIC_CATEGORY_NAV} postsPromise={postsPromise} />
+  );
 }
