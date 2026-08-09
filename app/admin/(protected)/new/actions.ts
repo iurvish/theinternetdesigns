@@ -13,6 +13,11 @@ import {
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { parseTweetId, parseTweetIds } from "@/lib/providers/tweet/parse-url";
 import { fetchTweet, type NormalizedTweet } from "@/lib/providers/tweet/syndication";
+import { parsePinId, parsePinIds } from "@/lib/providers/pinterest/parse-url";
+import {
+  fetchPin,
+  type NormalizedPin,
+} from "@/lib/providers/pinterest/fetch-pin";
 import { processImage, processVideo, uploadAvatar } from "@/lib/media/process";
 import { extractPalette, type PaletteColor } from "@/lib/media/colors";
 import { firstFramePalette } from "@/lib/media/video-frame";
@@ -167,6 +172,289 @@ export async function fetchBulkPreviews(blob: string): Promise<BulkPreviewResult
 export type PublishResult =
   | { ok: true; postId: string }
   | { ok: false; error: string };
+
+export type PinPreviewResult =
+  | {
+      ok: true;
+      pin: NormalizedPin;
+      existing: boolean;
+      colors: PaletteColor[][];
+    }
+  | { ok: false; error: string };
+
+export type BulkPinPreviewItem =
+  | {
+      ok: true;
+      pinId: string;
+      pin: NormalizedPin;
+      existing: boolean;
+      colors: PaletteColor[][];
+    }
+  | { ok: false; pinId: string; input: string; error: string };
+
+export type BulkPinPreviewResult =
+  | { ok: true; items: BulkPinPreviewItem[] }
+  | { ok: false; error: string };
+
+async function colorsForPinMedia(
+  pin: NormalizedPin,
+  existing: boolean,
+): Promise<PaletteColor[][]> {
+  if (existing) return [];
+  return Promise.all(
+    pin.media.map(async (m) => {
+      if (m.kind === "image") return paletteFromUrl(m.url);
+      return (await firstFramePalette(m.url)) ?? paletteFromUrl(m.posterUrl);
+    }),
+  );
+}
+
+export async function fetchPinPreview(input: string): Promise<PinPreviewResult> {
+  await requireAdmin();
+  const ids = await parsePinIds(input);
+  const id = ids[0] ?? parsePinId(input);
+  if (!id) return { ok: false, error: "Not a valid Pinterest pin URL." };
+  try {
+    const pin = await fetchPin(id);
+    if (pin.media.length === 0) {
+      return { ok: false, error: "This pin has no downloadable media." };
+    }
+    const [existing] = await db
+      .select({ id: posts.id })
+      .from(posts)
+      .where(and(eq(posts.source, "pinterest"), eq(posts.sourceId, id)))
+      .limit(1);
+    const existingFlag = Boolean(existing);
+    return {
+      ok: true,
+      pin,
+      existing: existingFlag,
+      colors: await colorsForPinMedia(pin, existingFlag),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Fetch failed.",
+    };
+  }
+}
+
+export async function fetchBulkPinPreviews(
+  blob: string,
+): Promise<BulkPinPreviewResult> {
+  await requireAdmin();
+  const ids = await parsePinIds(blob);
+  if (ids.length === 0) {
+    return { ok: false, error: "No valid Pinterest pin URLs found." };
+  }
+  if (ids.length > 25) {
+    return { ok: false, error: "Paste at most 25 URLs at a time." };
+  }
+
+  const items: BulkPinPreviewItem[] = [];
+  for (const id of ids) {
+    try {
+      const pin = await fetchPin(id);
+      if (pin.media.length === 0) {
+        items.push({
+          ok: false,
+          pinId: id,
+          input: id,
+          error: "This pin has no downloadable media.",
+        });
+        continue;
+      }
+      const [existing] = await db
+        .select({ id: posts.id })
+        .from(posts)
+        .where(and(eq(posts.source, "pinterest"), eq(posts.sourceId, id)))
+        .limit(1);
+      const existingFlag = Boolean(existing);
+      items.push({
+        ok: true,
+        pinId: id,
+        pin,
+        existing: existingFlag,
+        colors: await colorsForPinMedia(pin, existingFlag),
+      });
+    } catch (err) {
+      items.push({
+        ok: false,
+        pinId: id,
+        input: id,
+        error: err instanceof Error ? err.message : "Fetch failed.",
+      });
+    }
+  }
+
+  return { ok: true, items };
+}
+
+export type PublishPinInput = {
+  pinId: string;
+  title: string;
+  caption: string;
+  categoryIds: string[];
+  mediaColors?: PaletteColor[][];
+  autoplayInFeed?: boolean;
+  featured?: boolean;
+  hiddenGem?: boolean;
+  interaction?: string | null;
+};
+
+export async function publishPinPost(
+  input: PublishPinInput,
+): Promise<PublishResult> {
+  await requireAdmin();
+  const id = parsePinId(input.pinId) ?? input.pinId.trim();
+  if (!id || !/^\d{5,25}$/.test(id)) {
+    return { ok: false, error: "Invalid pin id." };
+  }
+
+  try {
+    const [existing] = await db
+      .select({ id: posts.id })
+      .from(posts)
+      .where(and(eq(posts.source, "pinterest"), eq(posts.sourceId, id)))
+      .limit(1);
+    if (existing) {
+      return { ok: false, error: "This pin is already published." };
+    }
+
+    const pin = await fetchPin(id);
+    if (pin.media.length === 0) {
+      return { ok: false, error: "This pin has no downloadable media." };
+    }
+
+    let [creator] = await db
+      .select()
+      .from(creators)
+      .where(
+        and(
+          eq(creators.source, "pinterest"),
+          eq(creators.sourceId, pin.creator.sourceId),
+        ),
+      )
+      .limit(1);
+
+    if (!creator) {
+      const creatorId = randomUUID();
+      let avatarUrl: string | null = null;
+      if (pin.creator.avatarUrl) {
+        avatarUrl = await uploadAvatar(
+          pin.creator.avatarUrl,
+          `pinterest/creators/${pin.creator.sourceId}`,
+        );
+      }
+      const [inserted] = await db
+        .insert(creators)
+        .values({
+          id: creatorId,
+          source: "pinterest",
+          sourceId: pin.creator.sourceId,
+          username: pin.creator.username,
+          displayName: pin.creator.displayName,
+          avatarUrl,
+          profileUrl: pin.creator.profileUrl,
+        })
+        .returning();
+      creator = inserted;
+    }
+
+    const postId = randomUUID();
+    const keyBase = `pinterest/posts/${id}`;
+
+    const processedMedia = await Promise.all(
+      pin.media.map(async (m, i) => {
+        const keyPrefix = `${keyBase}/${i}`;
+        const edited = input.mediaColors?.[i];
+        if (m.kind === "image") {
+          const p = await processImage(m.url, keyPrefix);
+          return {
+            id: randomUUID(),
+            postId,
+            kind: "image" as const,
+            position: i,
+            originalUrl: p.originalUrl,
+            thumbnailUrl: p.thumbnailUrl,
+            mediumUrl: null,
+            posterUrl: null,
+            width: p.width ?? m.width,
+            height: p.height ?? m.height,
+            durationMs: null,
+            sourceMediaUrl: m.url,
+            colors: edited ? sanitizePalette(edited) : p.colors,
+          };
+        }
+        const p = await processVideo(m.url, m.posterUrl, keyPrefix);
+        return {
+          id: randomUUID(),
+          postId,
+          kind: m.kind,
+          position: i,
+          originalUrl: p.originalUrl,
+          thumbnailUrl: p.posterUrl,
+          mediumUrl: null,
+          posterUrl: p.posterUrl,
+          width: m.width,
+          height: m.height,
+          durationMs: m.durationMs,
+          sourceMediaUrl: m.url,
+          colors: edited ? sanitizePalette(edited) : p.colors,
+        };
+      }),
+    );
+
+    const imageCount = processedMedia.filter((m) => m.kind === "image").length;
+    const hasVideo = processedMedia.some(
+      (m) => m.kind === "video" || m.kind === "gif",
+    );
+    const publishedAt = pin.createdAt ? new Date(pin.createdAt) : new Date();
+
+    await db.transaction(async (tx) => {
+      await tx.insert(posts).values({
+        id: postId,
+        source: "pinterest",
+        sourceId: id,
+        sourceUrl: pin.url,
+        creatorId: creator!.id,
+        title: input.title.trim() || null,
+        caption: input.caption.trim() || pin.text || null,
+        rawText: pin.text || null,
+        providerMeta: pin.raw as object,
+        publishedAt,
+        hasVideo,
+        autoplayInFeed: hasVideo && (input.autoplayInFeed ?? false),
+        imageCount,
+        published: true,
+        featured: input.featured ?? false,
+        hiddenGem: input.hiddenGem ?? false,
+        interaction: input.interaction?.trim() || null,
+      });
+      await tx.insert(mediaTable).values(processedMedia);
+      if (input.categoryIds.length > 0) {
+        const validCats = await tx
+          .select({ id: categoriesTable.id })
+          .from(categoriesTable);
+        const valid = new Set(validCats.map((c) => c.id));
+        const rows = input.categoryIds
+          .filter((cid) => valid.has(cid))
+          .map((cid) => ({ postId, categoryId: cid }));
+        if (rows.length > 0) await tx.insert(postCategories).values(rows);
+      }
+    });
+
+    revalidatePath("/");
+    revalidatePath("/admin/posts");
+    return { ok: true, postId };
+  } catch (err) {
+    console.error("[publishPinPost] failed", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Publish failed.",
+    };
+  }
+}
 
 export async function publishPost(input: PublishInput): Promise<PublishResult> {
   await requireAdmin();

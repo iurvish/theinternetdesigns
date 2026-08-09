@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { categories } from "@/lib/db/schema";
 import { getRecentPosts } from "@/features/posts/queries";
 import type { PostListItem } from "@/features/posts/queries";
-import { ExploreFeed, type PostsResult } from "@/features/posts/explore-feed";
+import { ExploreFeed } from "@/features/posts/explore-feed";
 import { PUBLIC_CATEGORY_NAV } from "@/features/posts/public-categories";
 import { SetupRequired } from "@/components/setup-required";
 import { PaperCurl } from "@/components/paper-curl";
@@ -28,13 +28,14 @@ export default function HomePage() {
 }
 
 /**
- * Categories are awaited (fast) so the filter bar is in the initial HTML and
- * never blanks out on refresh; the slower posts query is passed down as a
- * promise and streamed into the grid via a Suspense boundary inside ExploreFeed.
+ * Await the first feed page on the server and pass resolved posts into the
+ * client explorer. Streaming a Promise into a client Suspense boundary was
+ * re-showing GridSkeleton on hydration / RSC refresh even after posts had
+ * already painted — awaiting here restores the pre-regression behaviour.
  */
 async function HomeShell() {
   try {
-    // Sanity check — categories table reachable before streaming posts.
+    // Sanity check — categories table reachable before loading posts.
     await db.select({ slug: categories.slug }).from(categories).limit(1);
   } catch (err) {
     return (
@@ -46,14 +47,19 @@ async function HomeShell() {
     );
   }
 
-  const postsPromise: Promise<PostsResult> = getRecentPosts({ limit: 24 })
-    .then((posts) => ({ posts, error: null }))
-    .catch((err) => ({
-      posts: [] as PostListItem[],
-      error: err instanceof Error ? err.message : String(err),
-    }));
+  let initialPosts: PostListItem[] = [];
+  let error: string | null = null;
+  try {
+    initialPosts = (await getRecentPosts({ limit: 24 })) ?? [];
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+  }
 
   return (
-    <ExploreFeed categories={PUBLIC_CATEGORY_NAV} postsPromise={postsPromise} />
+    <ExploreFeed
+      categories={PUBLIC_CATEGORY_NAV}
+      initialPosts={initialPosts}
+      error={error}
+    />
   );
 }

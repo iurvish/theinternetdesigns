@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  Suspense,
-  use,
   useCallback,
   useEffect,
   useMemo,
@@ -33,12 +31,21 @@ import {
   playOverlayOpen,
 } from "@/lib/tiks-sounds";
 
-export type PostsResult = { posts: PostListItem[]; error: string | null };
-
 type Category = { slug: string; name: string };
 type SortKey = FeedSort;
 
+type FeedPageCache = { posts: PostListItem[]; hasMore: boolean };
+
+/** Survives ExploreFeed remounts within the same JS realm (soft navigations). */
+const feedPageCache = new Map<string, FeedPageCache>();
+const DEFAULT_FILTER_KEY = "all|recent";
+const EMPTY_POSTS: PostListItem[] = [];
+
 const FEED_PAGE_SIZE = 24;
+
+function asPostList(value: unknown): PostListItem[] {
+  return Array.isArray(value) ? (value as PostListItem[]) : EMPTY_POSTS;
+}
 
 const SORT_LABELS: Record<SortKey, string> = {
   recent: "Recently",
@@ -49,7 +56,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 
 const SORT_ORDER: SortKey[] = ["recent", "hidden_gems", "featured", "oldest"];
 
-const SORT_MENU_WIDTH = "w-[160px]";
+const SORT_MENU_WIDTH = "w-[176px]";
 
 /** Paper colour-tag segment — matches ColorSearch toolbar chips */
 const TAG_SEGMENT_SHADOW =
@@ -72,27 +79,32 @@ const MOBILE_ROW_SPLIT =
  * The public "The Internet Designs" explorer — a hero heading, a category
  * filter toolbar, and a Pinterest-style masonry of posts. Ported from Figma
  * (node 1:2). Light-only aesthetic using the design's literal palette.
+ *
+ * Initial posts arrive already resolved from the server (no client Suspense /
+ * use(promise)). Filter changes keep the current grid painted until the next
+ * page arrives — never swap to skeletons when we already have posts.
  */
 export function ExploreFeed({
   categories,
-  postsPromise,
+  initialPosts,
+  error = null,
 }: {
   categories: Category[];
-  postsPromise: Promise<PostsResult>;
+  initialPosts?: PostListItem[] | null;
+  error?: string | null;
 }) {
   const [active, setActive] = useState<string>("all");
   const [sort, setSort] = useState<SortKey>("recent");
   // Selected search colours — when non-empty the grid below is replaced (in place,
   // no navigation) with colour-matched results.
   const [colors, setColors] = useState<string[]>([]);
+  const safeInitialPosts = asPostList(initialPosts);
 
   return (
     <MotionConfig reducedMotion="user">
       <div className="flex w-full flex-1 flex-col bg-[#f7f7f7]">
-        {/* Filter toolbar — rendered immediately (outside the grid's Suspense) so it
-            never blanks out on refresh. Elevated (relative z-30) so its dropdowns
-            paint above the grid; drop shadow gives the bar its crisp float. */}
-        {/* Plain positioning wrapper — all chrome lives on the inner sheet */}
+        {/* Plain positioning wrapper — all chrome lives on the inner sheet.
+            Elevated so dropdowns paint above the grid. */}
         <div className="relative z-30 w-full shrink-0">
           <div className={FIGMA_TOOLBAR_SHEET}>
             {/* Mobile — two rows: controls, then categories */}
@@ -141,16 +153,14 @@ export function ExploreFeed({
           </div>
         </div>
 
-        {/* Only the grid streams in — the bar above stays put */}
         <div className="flex min-h-0 w-full flex-1 flex-col">
-          <Suspense fallback={<GridSkeleton />}>
-            <FeedBody
-              postsPromise={postsPromise}
-              active={active}
-              sort={sort}
-              colors={colors}
-            />
-          </Suspense>
+          <FeedBody
+            initialPosts={safeInitialPosts}
+            error={error}
+            active={active}
+            sort={sort}
+            colors={colors}
+          />
         </div>
 
         {/* Footer strip */}
@@ -181,40 +191,70 @@ function GridBox({
 }
 
 function FeedBody({
-  postsPromise,
+  initialPosts: initialPostsProp,
+  error,
   active,
   sort,
   colors,
 }: {
-  postsPromise: Promise<PostsResult>;
+  initialPosts: PostListItem[];
+  error: string | null;
   active: string;
   sort: SortKey;
   colors: string[];
 }) {
-  const { posts: initialPosts, error } = use(postsPromise);
+  // Guard against undefined during HMR / stale call sites after the
+  // postsPromise → initialPosts rename.
+  const initialPosts = asPostList(initialPostsProp);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   useEffect(() => {
     initTiksOnFirstGesture();
   }, []);
 
-  // Paginated feed — first page streams in via Suspense; further pages append as
-  // the sentinel approaches the viewport. Category/sort resets to page 0.
-  const [feedPosts, setFeedPosts] = useState<PostListItem[]>(initialPosts);
-  const [hasMore, setHasMore] = useState(initialPosts.length >= FEED_PAGE_SIZE);
+  // Paginated feed — first page comes from server props (or module cache on
+  // remount). Category/sort keep prior posts painted until the new page lands.
+  const [feedPosts, setFeedPosts] = useState<PostListItem[]>(() => {
+    const cached = feedPageCache.get(DEFAULT_FILTER_KEY);
+    if (cached?.posts) return asPostList(cached.posts);
+    feedPageCache.set(DEFAULT_FILTER_KEY, {
+      posts: initialPosts,
+      hasMore: initialPosts.length >= FEED_PAGE_SIZE,
+    });
+    return initialPosts;
+  });
+  const [hasMore, setHasMore] = useState(() => {
+    const cached = feedPageCache.get(DEFAULT_FILTER_KEY);
+    return cached?.hasMore ?? initialPosts.length >= FEED_PAGE_SIZE;
+  });
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedBootstrapping, setFeedBootstrapping] = useState(false);
   const loadGen = useRef(0);
   const loadingMoreRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  // Tracks the filter whose page is currently in `feedPosts`.
+  const loadedFilterKey = useRef(DEFAULT_FILTER_KEY);
 
-  // Adopt the streamed first page whenever the Suspense promise resolves to a new
-  // one (adjust-during-render rather than an effect, so there's no extra paint).
+  // Adopt a refreshed default page without blanking a filtered view the user
+  // already navigated to. Do not shrink a longer client-fetched page.
   const [syncedInitial, setSyncedInitial] = useState(initialPosts);
   if (syncedInitial !== initialPosts) {
     setSyncedInitial(initialPosts);
-    setFeedPosts(initialPosts);
-    setHasMore(initialPosts.length >= FEED_PAGE_SIZE);
+    const cached = feedPageCache.get(DEFAULT_FILTER_KEY);
+    const cachedPosts = asPostList(cached?.posts);
+    const keepLonger = cachedPosts.length > initialPosts.length;
+    if (!keepLonger) {
+      feedPageCache.set(DEFAULT_FILTER_KEY, {
+        posts: initialPosts,
+        hasMore: initialPosts.length >= FEED_PAGE_SIZE,
+      });
+    }
+    if (active === "all" && sort === "recent" && !keepLonger) {
+      loadedFilterKey.current = DEFAULT_FILTER_KEY;
+      setFeedPosts(initialPosts);
+      setHasMore(initialPosts.length >= FEED_PAGE_SIZE);
+      setFeedBootstrapping(false);
+    }
   }
 
   // Colour-matched results fetched in place. Stored tagged with the colour key so
@@ -239,25 +279,72 @@ function FeedBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorKey]);
 
-  // Refetch page 0 only when the category/sort actually change. Clearing a colour
-  // search must NOT refetch — the feed is still in state, so it comes straight back
-  // with no skeleton flash.
-  const loadedFilterKey = useRef(`all|recent`);
+  // Refetch page 0 when category/sort change. Never clear the grid — show cached
+  // page instantly when available, otherwise keep stale posts until the fetch
+  // completes. Colour-search clear must not refetch.
   useEffect(() => {
     const filterKey = `${active}|${sort}`;
     if (loadedFilterKey.current === filterKey) return;
-    loadedFilterKey.current = filterKey;
+
+    const cached = feedPageCache.get(filterKey);
+    if (cached?.posts) {
+      const cachedPosts = asPostList(cached.posts);
+      loadedFilterKey.current = filterKey;
+      setFeedPosts(cachedPosts);
+      setHasMore(Boolean(cached.hasMore));
+      setFeedBootstrapping(false);
+      // Background revalidate — keep cached posts visible (no dim / skeleton).
+      // If page-0 still matches the head of a longer cached list, keep the tail.
+      const gen = ++loadGen.current;
+      let cancelled = false;
+      loadFeedPageAction({ offset: 0, category: active, sort }).then(
+        (raw) => {
+          if (cancelled || loadGen.current !== gen) return;
+          const page = asPostList(raw);
+          const prev = asPostList(feedPageCache.get(filterKey)?.posts);
+          const headMatches =
+            page.length > 0 &&
+            prev.length >= page.length &&
+            page.every((p, i) => p.id === prev[i]?.id);
+          const posts = headMatches ? prev : page;
+          const more = headMatches
+            ? (feedPageCache.get(filterKey)?.hasMore ??
+              page.length >= FEED_PAGE_SIZE)
+            : page.length >= FEED_PAGE_SIZE;
+          feedPageCache.set(filterKey, { posts, hasMore: more });
+          setFeedPosts(posts);
+          setHasMore(more);
+        },
+        () => {},
+      );
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const gen = ++loadGen.current;
     let cancelled = false;
+    // Stale-while-revalidate: keep current posts; only dim, never clear.
     setFeedBootstrapping(true);
-    setHasMore(true);
-    loadFeedPageAction({ offset: 0, category: active, sort }).then((page) => {
-      if (cancelled || loadGen.current !== gen) return;
-      setFeedPosts(page);
-      setHasMore(page.length >= FEED_PAGE_SIZE);
-      setFeedBootstrapping(false);
-    });
+    loadFeedPageAction({ offset: 0, category: active, sort }).then(
+      (raw) => {
+        if (cancelled || loadGen.current !== gen) return;
+        const page = asPostList(raw);
+        const next = {
+          posts: page,
+          hasMore: page.length >= FEED_PAGE_SIZE,
+        };
+        feedPageCache.set(filterKey, next);
+        loadedFilterKey.current = filterKey;
+        setFeedPosts(next.posts);
+        setHasMore(next.hasMore);
+        setFeedBootstrapping(false);
+      },
+      () => {
+        if (cancelled || loadGen.current !== gen) return;
+        setFeedBootstrapping(false);
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -267,19 +354,28 @@ function FeedBody({
     if (loadingMoreRef.current || !hasMore || colors.length > 0 || feedBootstrapping)
       return;
     const gen = loadGen.current;
+    const filterKey = `${active}|${sort}`;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
-      const page = await loadFeedPageAction({
-        offset: feedPosts.length,
-        category: active,
-        sort,
-      });
+      const page = asPostList(
+        await loadFeedPageAction({
+          offset: feedPosts.length,
+          category: active,
+          sort,
+        }),
+      );
       if (loadGen.current !== gen) return;
       setFeedPosts((prev) => {
-        const seen = new Set(prev.map((p) => p.id));
+        const safePrev = asPostList(prev);
+        const seen = new Set(safePrev.map((p) => p.id));
         const next = page.filter((p) => !seen.has(p.id));
-        return next.length ? [...prev, ...next] : prev;
+        const merged = next.length ? [...safePrev, ...next] : safePrev;
+        feedPageCache.set(filterKey, {
+          posts: merged,
+          hasMore: page.length >= FEED_PAGE_SIZE,
+        });
+        return merged;
       });
       setHasMore(page.length >= FEED_PAGE_SIZE);
     } finally {
@@ -351,10 +447,10 @@ function FeedBody({
   // While a colour search is in flight the existing feed stays on screen (dimmed)
   // instead of collapsing to skeletons; a category switch likewise keeps the old
   // posts up until the new page lands.
-  const visible = useMemo(
-    () => (colorActive ? (colorPosts ?? feedPosts) : feedPosts),
-    [colorActive, colorPosts, feedPosts],
-  );
+  const visible = useMemo(() => {
+    if (colorActive) return asPostList(colorPosts ?? feedPosts);
+    return asPostList(feedPosts);
+  }, [colorActive, colorPosts, feedPosts]);
 
   if (error) {
     return (
@@ -364,7 +460,8 @@ function FeedBody({
     );
   }
 
-  // Skeletons are a last resort — only when there is genuinely nothing to show.
+  // Skeletons only when there is genuinely nothing to paint yet (first empty
+  // load). Filter changes with posts on screen never take this path.
   const showSkeleton = refreshing && visible.length === 0;
   const isEmpty = !showSkeleton && visible.length === 0;
 
@@ -375,17 +472,7 @@ function FeedBody({
           className={cn("w-full", isEmpty && "flex min-h-[50vh] flex-1 flex-col")}
         >
           {showSkeleton ? (
-            <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
-              {Array.from({ length: 9 }).map((_, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
-                    i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-80",
-                  )}
-                />
-              ))}
-            </div>
+            <GridSkeletonColumns />
           ) : isEmpty ? (
             <EmptyState hasPosts={initialPosts.length > 0} colorSearch={colorActive} />
           ) : (
@@ -462,21 +549,20 @@ function FeedBody({
   );
 }
 
-function GridSkeleton() {
+/** Only rendered when the grid is empty AND a first page is still loading. */
+function GridSkeletonColumns() {
   return (
-    <GridBox>
-      <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
-        {Array.from({ length: 9 }).map((_, i) => (
-          <div
-            key={i}
-            className={cn(
-              "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
-              i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-80",
-            )}
-          />
-        ))}
-      </div>
-    </GridBox>
+    <div className="w-full columns-1 gap-2.5 sm:columns-2 md:columns-3">
+      {Array.from({ length: 9 }).map((_, i) => (
+        <div
+          key={i}
+          className={cn(
+            "mb-2.5 animate-pulse break-inside-avoid rounded-lg bg-[#ececee]",
+            i % 3 === 0 ? "h-64" : i % 3 === 1 ? "h-52" : "h-80",
+          )}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -812,7 +898,7 @@ function MasonryCard({
   // The card can page through the post's media in place on hover. Media[0] keeps
   // using the light thumbnail (fast grid + the shared-element morph source);
   // deeper images pull their medium render only once the user pages to them.
-  const media = post.images.length
+  const media = post.images?.length
     ? post.images
     : post.thumbnail
       ? [

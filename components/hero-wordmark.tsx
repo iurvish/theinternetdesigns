@@ -3,18 +3,19 @@
 import { AnimatedSelectionHighlight } from "@/components/animated-selection-highlight";
 
 /**
- * Desktop (sm+): one continuous text node ("the internet designs") — no breaks.
+ * Desktop (sm+): one continuous text node — no breaks.
  * Mobile: soft breaks via <br> so selection still spans all three lines
- * (The / Internet / Designs).
+ * (The / Internet / Designs). Title Case in source so each line keeps its
+ * capital even if text-transform is ignored on the gradient fill layer.
  */
 function WordmarkLines() {
   return (
     <span className="inline-block">
-      the{" "}
+      The{" "}
       <br className="sm:hidden" aria-hidden="true" />
-      internet{" "}
+      Internet{" "}
       <br className="sm:hidden" aria-hidden="true" />
-      designs
+      Designs
     </span>
   );
 }

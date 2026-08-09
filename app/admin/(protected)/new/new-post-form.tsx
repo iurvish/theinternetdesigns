@@ -10,11 +10,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VideoPlayer } from "@/components/video-player";
 import { cn } from "@/lib/utils";
-import { fetchBulkPreviews, fetchPreview, publishPost } from "./actions";
+import {
+  fetchBulkPinPreviews,
+  fetchBulkPreviews,
+  fetchPinPreview,
+  fetchPreview,
+  publishPinPost,
+  publishPost,
+} from "./actions";
 import type {
   NormalizedTweet,
   TweetMedia,
 } from "@/lib/providers/tweet/syndication";
+import type { NormalizedPin, PinMedia } from "@/lib/providers/pinterest/types";
 import type { PaletteColor } from "@/lib/media/colors";
 import { PaletteEditor } from "@/features/posts/palette-editor";
 import { INTERACTION_TYPES } from "@/features/posts/interaction-types";
@@ -23,10 +31,15 @@ import { ChoiceChip, ChoiceChipGroup } from "./admin-choice-chips";
 
 type Category = { id: string; name: string; slug: string };
 type Platform = "x" | "pinterest" | "instagram";
+type ReadyPlatform = "x" | "pinterest";
+/** Shared shape for X + Pinterest preview drafts. */
+type SourcePost = NormalizedTweet | NormalizedPin;
+type SourceMedia = TweetMedia | PinMedia;
 
 type DraftItem = {
-  tweetId: string;
-  tweet: NormalizedTweet;
+  source: ReadyPlatform;
+  sourceId: string;
+  post: SourcePost;
   existing: boolean;
   palettes: PaletteColor[][];
   title: string;
@@ -41,7 +54,7 @@ type DraftItem = {
 
 const PLATFORMS: { id: Platform; label: string; ready: boolean }[] = [
   { id: "x", label: "X", ready: true },
-  { id: "pinterest", label: "Pinterest", ready: false },
+  { id: "pinterest", label: "Pinterest", ready: true },
   { id: "instagram", label: "Instagram", ready: false },
 ];
 
@@ -63,28 +76,92 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
       .sort((a, b) => (order.get(a.slug) ?? 99) - (order.get(b.slug) ?? 99));
   }, [categories]);
 
-  const active = drafts.find((d) => d.tweetId === activeId) ?? drafts[0] ?? null;
+  const active = drafts.find((d) => d.sourceId === activeId) ?? drafts[0] ?? null;
   const isBulk = drafts.length > 1;
   const activeMediaIndex = active
-    ? Math.min(mediaIndex, Math.max(active.tweet.media.length - 1, 0))
+    ? Math.min(mediaIndex, Math.max(active.post.media.length - 1, 0))
     : 0;
 
   useEffect(() => {
     setMediaIndex(0);
-  }, [active?.tweetId]);
+  }, [active?.sourceId]);
+
+  function selectPlatform(next: Platform) {
+    setPlatform(next);
+    setDrafts([]);
+    setErrors([]);
+    setActiveId(null);
+    setUrlBlob("");
+  }
 
   function onFetch(e: React.FormEvent) {
     e.preventDefault();
-    if (platform !== "x") {
-      toast.error(`${PLATFORMS.find((p) => p.id === platform)?.label} bulk upload is coming soon.`);
+    if (platform === "instagram") {
+      toast.error("Instagram bulk upload is coming soon.");
       return;
     }
+    const source = platform as ReadyPlatform;
     startPreview(async () => {
       const lines = urlBlob.trim();
-      // Single URL path keeps the original fast path + richer error.
       const looksSingle =
         lines.split(/[\s,;]+/).filter(Boolean).length === 1 &&
         !lines.includes("\n");
+
+      if (source === "pinterest") {
+        if (looksSingle) {
+          const res = await fetchPinPreview(lines);
+          if (!res.ok) {
+            toast.error(res.error);
+            return;
+          }
+          if (res.existing) {
+            toast.error("This pin is already published.");
+            return;
+          }
+          const draft = toDraft(
+            "pinterest",
+            res.pin.id,
+            res.pin,
+            res.existing,
+            res.colors,
+          );
+          setDrafts([draft]);
+          setErrors([]);
+          setActiveId(draft.sourceId);
+          toast.success("Fetched 1 pin.");
+          return;
+        }
+
+        const res = await fetchBulkPinPreviews(lines);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        const nextDrafts: DraftItem[] = [];
+        const nextErrors: { id: string; error: string }[] = [];
+        for (const item of res.items) {
+          if (!item.ok) {
+            nextErrors.push({ id: item.pinId, error: item.error });
+            continue;
+          }
+          if (item.existing) {
+            nextErrors.push({ id: item.pinId, error: "Already published." });
+            continue;
+          }
+          nextDrafts.push(
+            toDraft("pinterest", item.pinId, item.pin, item.existing, item.colors),
+          );
+        }
+        setDrafts(nextDrafts);
+        setErrors(nextErrors);
+        setActiveId(nextDrafts[0]?.sourceId ?? null);
+        toast.success(
+          `Fetched ${nextDrafts.length} pin${nextDrafts.length === 1 ? "" : "s"}${
+            nextErrors.length ? ` · ${nextErrors.length} skipped` : ""
+          }.`,
+        );
+        return;
+      }
 
       if (looksSingle) {
         const res = await fetchPreview(lines);
@@ -96,10 +173,10 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
           toast.error("This tweet is already published.");
           return;
         }
-        const draft = toDraft(res.tweet.id, res.tweet, res.existing, res.colors);
+        const draft = toDraft("x", res.tweet.id, res.tweet, res.existing, res.colors);
         setDrafts([draft]);
         setErrors([]);
-        setActiveId(draft.tweetId);
+        setActiveId(draft.sourceId);
         toast.success("Fetched 1 post.");
         return;
       }
@@ -122,12 +199,12 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
           continue;
         }
         nextDrafts.push(
-          toDraft(item.tweetId, item.tweet, item.existing, item.colors),
+          toDraft("x", item.tweetId, item.tweet, item.existing, item.colors),
         );
       }
       setDrafts(nextDrafts);
       setErrors(nextErrors);
-      setActiveId(nextDrafts[0]?.tweetId ?? null);
+      setActiveId(nextDrafts[0]?.sourceId ?? null);
       toast.success(
         `Fetched ${nextDrafts.length} post${nextDrafts.length === 1 ? "" : "s"}${
           nextErrors.length ? ` · ${nextErrors.length} skipped` : ""
@@ -139,7 +216,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
   function patchActive(patch: Partial<DraftItem>) {
     if (!active) return;
     setDrafts((prev) =>
-      prev.map((d) => (d.tweetId === active.tweetId ? { ...d, ...patch } : d)),
+      prev.map((d) => (d.sourceId === active.sourceId ? { ...d, ...patch } : d)),
     );
   }
 
@@ -160,9 +237,9 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
         return;
       }
       toast.success("Published.");
-      const remaining = drafts.filter((d) => d.tweetId !== active.tweetId);
+      const remaining = drafts.filter((d) => d.sourceId !== active.sourceId);
       setDrafts(remaining);
-      setActiveId(remaining[0]?.tweetId ?? null);
+      setActiveId(remaining[0]?.sourceId ?? null);
       router.refresh();
     });
   }
@@ -179,18 +256,20 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
         const res = await publishDraft(draft);
         if (res.ok) {
           ok++;
-          publishedIds.add(draft.tweetId);
+          publishedIds.add(draft.sourceId);
         } else {
           fail++;
         }
       }
-      setDrafts((prev) => prev.filter((d) => !publishedIds.has(d.tweetId)));
+      setDrafts((prev) => prev.filter((d) => !publishedIds.has(d.sourceId)));
       setActiveId(null);
       router.refresh();
       if (fail === 0) toast.success(`Published ${ok} post${ok === 1 ? "" : "s"}.`);
       else toast.message(`Published ${ok}, failed ${fail}.`);
     });
   }
+
+  const pasteReady = platform === "x" || platform === "pinterest";
 
   return (
     <div className="flex flex-col gap-6">
@@ -200,12 +279,12 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
             <button
               key={p.id}
               type="button"
-              onClick={() => setPlatform(p.id)}
+              onClick={() => selectPlatform(p.id)}
               className={cn(
-                "rounded-full px-4 py-2 text-sm font-medium tracking-tight transition-colors",
+                "rounded-xl border px-3.5 py-2.5 text-sm font-medium tracking-tight transition-[background-color,border-color,color,transform] active:scale-[0.98] motion-reduce:active:scale-100",
                 platform === p.id
-                  ? "bg-[#1f2123] text-white"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80",
+                  ? "border-[#1f2123] bg-[#1f2123] text-white"
+                  : "border-border/80 bg-background text-muted-foreground hover:border-foreground/25 hover:bg-muted/60 hover:text-foreground",
               )}
             >
               {p.label}
@@ -216,19 +295,26 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
           ))}
         </div>
 
-        {platform === "x" ? (
+        {pasteReady ? (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">1. Paste X URLs</CardTitle>
+              <CardTitle className="text-base">
+                1. Paste {platform === "x" ? "X" : "Pinterest"} URLs
+              </CardTitle>
               <p className="text-sm text-muted-foreground">
-                One URL for a single post, or paste 10–20 URLs (one per line) for
-                bulk fetch.
+                {platform === "x"
+                  ? "One URL for a single post, or paste 10–20 URLs (one per line) for bulk fetch."
+                  : "Paste one or many pin URLs (pinterest.com/pin/… or pin.it). Bulk accepts up to 25."}
               </p>
             </CardHeader>
             <CardContent>
               <form onSubmit={onFetch} className="flex flex-col gap-3">
                 <Textarea
-                  placeholder={`https://x.com/user/status/123…\nhttps://x.com/user/status/456…`}
+                  placeholder={
+                    platform === "x"
+                      ? `https://x.com/user/status/123…\nhttps://x.com/user/status/456…`
+                      : `https://www.pinterest.com/pin/1234567890/\nhttps://pin.it/…`
+                  }
                   value={urlBlob}
                   onChange={(e) => setUrlBlob(e.target.value)}
                   disabled={previewPending}
@@ -297,12 +383,12 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
               <CardContent className="flex max-h-[min(70vh,560px)] flex-col gap-1 overflow-y-auto">
                 {drafts.map((d) => (
                   <button
-                    key={d.tweetId}
+                    key={d.sourceId}
                     type="button"
-                    onClick={() => setActiveId(d.tweetId)}
+                    onClick={() => setActiveId(d.sourceId)}
                     className={cn(
                       "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                      d.tweetId === active.tweetId
+                      d.sourceId === active.sourceId
                         ? "bg-[#1f2123] text-white"
                         : "hover:bg-muted",
                     )}
@@ -314,7 +400,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                         e.stopPropagation();
                         setDrafts((prev) =>
                           prev.map((x) =>
-                            x.tweetId === d.tweetId
+                            x.sourceId === d.sourceId
                               ? { ...x, selected: e.target.checked }
                               : x,
                           ),
@@ -323,7 +409,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                       onClick={(e) => e.stopPropagation()}
                       className="shrink-0"
                     />
-                    <span className="truncate">@{d.tweet.creator.username}</span>
+                    <span className="truncate">@{d.post.creator.username}</span>
                   </button>
                 ))}
                 <Button
@@ -353,8 +439,8 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                   </p>
                 </div>
                 <AuthorMeta
-                  creator={active.tweet.creator}
-                  mediaCount={active.tweet.media.length}
+                  creator={active.post.creator}
+                  mediaCount={active.post.media.length}
                 />
               </div>
             </CardHeader>
@@ -362,8 +448,9 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
               <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
                 <div className="flex flex-col gap-4 lg:sticky lg:top-4">
                   <PreviewMediaGallery
-                    tweetId={active.tweet.id}
-                    media={active.tweet.media}
+                    source={active.source}
+                    sourceId={active.post.id}
+                    media={active.post.media}
                     selectedIndex={activeMediaIndex}
                     onSelect={setMediaIndex}
                   />
@@ -371,8 +458,8 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <Label>
                         Colours
-                        {active.tweet.media.length > 1
-                          ? ` · ${activeMediaIndex + 1}/${active.tweet.media.length}`
+                        {active.post.media.length > 1
+                          ? ` · ${activeMediaIndex + 1}/${active.post.media.length}`
                           : null}
                       </Label>
                       <span className="text-xs text-muted-foreground">
@@ -389,7 +476,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                         });
                       }}
                       thumbnailSrc={(() => {
-                        const m = active.tweet.media[activeMediaIndex];
+                        const m = active.post.media[activeMediaIndex];
                         if (!m) return null;
                         return m.kind === "image" ? m.url : m.posterUrl;
                       })()}
@@ -470,7 +557,7 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
                     </div>
                   </div>
 
-                  {active.tweet.media.some(
+                  {active.post.media.some(
                     (m) => m.kind === "video" || m.kind === "gif",
                   ) ? (
                     <label className="flex items-center gap-2.5 text-sm">
@@ -513,18 +600,20 @@ export function NewPostForm({ categories }: { categories: Category[] }) {
 }
 
 function toDraft(
-  tweetId: string,
-  tweet: NormalizedTweet,
+  source: ReadyPlatform,
+  sourceId: string,
+  post: SourcePost,
   existing: boolean,
   colors: PaletteColor[][],
 ): DraftItem {
   return {
-    tweetId,
-    tweet,
+    source,
+    sourceId,
+    post,
     existing,
     palettes: colors,
     title: "",
-    caption: tweet.text,
+    caption: post.text,
     selectedCats: new Set(),
     interaction: null,
     featured: false,
@@ -538,7 +627,7 @@ function AuthorMeta({
   creator,
   mediaCount,
 }: {
-  creator: NormalizedTweet["creator"];
+  creator: SourcePost["creator"];
   mediaCount: number;
 }) {
   return (
@@ -568,13 +657,15 @@ function AuthorMeta({
 }
 
 function PreviewMediaGallery({
-  tweetId,
+  source,
+  sourceId,
   media,
   selectedIndex,
   onSelect,
 }: {
-  tweetId: string;
-  media: TweetMedia[];
+  source: ReadyPlatform;
+  sourceId: string;
+  media: SourceMedia[];
   selectedIndex: number;
   onSelect: (index: number) => void;
 }) {
@@ -594,7 +685,8 @@ function PreviewMediaGallery({
     <div className="flex flex-col gap-3">
       <div className="overflow-hidden rounded-xl bg-muted outline outline-1 outline-black/10">
         <PreviewMediaItem
-          tweetId={tweetId}
+          source={source}
+          sourceId={sourceId}
           media={selected}
           index={selectedIndex}
         />
@@ -641,12 +733,14 @@ function PreviewMediaGallery({
 }
 
 function PreviewMediaItem({
-  tweetId,
+  source,
+  sourceId,
   media,
   index,
 }: {
-  tweetId: string;
-  media: TweetMedia;
+  source: ReadyPlatform;
+  sourceId: string;
+  media: SourceMedia;
   index: number;
 }) {
   if (media.kind === "image") {
@@ -660,9 +754,12 @@ function PreviewMediaItem({
     );
   }
 
+  const previewBase =
+    source === "pinterest" ? "/api/pin-preview" : "/api/tweet-preview";
+
   return (
     <VideoPlayer
-      src={`/api/tweet-preview/${tweetId}/${index}`}
+      src={`${previewBase}/${sourceId}/${index}`}
       poster={media.posterUrl}
       mode={media.kind === "gif" ? "gif" : "video"}
       className="max-h-[min(62vh,560px)] rounded-none"
@@ -677,7 +774,7 @@ function MediaThumb({
   onClick,
   className,
 }: {
-  media: TweetMedia;
+  media: SourceMedia;
   active: boolean;
   label: string;
   onClick: () => void;
@@ -716,8 +813,7 @@ function MediaThumb({
 }
 
 async function publishDraft(draft: DraftItem) {
-  return publishPost({
-    tweetId: draft.tweetId,
+  const shared = {
     title: draft.title,
     caption: draft.caption,
     categoryIds: Array.from(draft.selectedCats),
@@ -726,5 +822,9 @@ async function publishDraft(draft: DraftItem) {
     featured: draft.featured,
     hiddenGem: draft.hiddenGem,
     interaction: draft.interaction,
-  });
+  };
+  if (draft.source === "pinterest") {
+    return publishPinPost({ pinId: draft.sourceId, ...shared });
+  }
+  return publishPost({ tweetId: draft.sourceId, ...shared });
 }
