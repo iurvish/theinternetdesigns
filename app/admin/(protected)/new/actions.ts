@@ -10,7 +10,9 @@ import {
   media as mediaTable,
   postCategories,
   postIndustries,
+  postStyles,
   posts,
+  styles as stylesTable,
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { parseTweetId, parseTweetIds } from "@/lib/providers/tweet/parse-url";
@@ -85,12 +87,24 @@ export async function fetchPreview(input: string): Promise<PreviewResult> {
   }
 }
 
+/** When true, set createdAt to the source publish date so the feed sorts by it. */
+function feedCreatedAtFromSource(
+  sourceCreatedAt: string | null | undefined,
+  sortBySourceDate: boolean | undefined,
+): Date | undefined {
+  if (!sortBySourceDate || !sourceCreatedAt) return undefined;
+  const parsed = new Date(sourceCreatedAt);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return parsed;
+}
+
 export type PublishInput = {
   tweetId: string;
   title: string;
   caption: string;
   categoryIds: string[];
   industryIds?: string[];
+  styleIds?: string[];
   /** Admin-reviewed palette per media (same order as tweet.media). */
   mediaColors?: PaletteColor[][];
   /** Autoplay the post's video in the feed (only meaningful for video posts). */
@@ -98,6 +112,8 @@ export type PublishInput = {
   featured?: boolean;
   hiddenGem?: boolean;
   interaction?: string | null;
+  /** Use the X tweet's original date for feed ordering (createdAt). */
+  sortBySourceDate?: boolean;
 };
 
 export type BulkPreviewItem =
@@ -299,11 +315,14 @@ export type PublishPinInput = {
   caption: string;
   categoryIds: string[];
   industryIds?: string[];
+  styleIds?: string[];
   mediaColors?: PaletteColor[][];
   autoplayInFeed?: boolean;
   featured?: boolean;
   hiddenGem?: boolean;
   interaction?: string | null;
+  /** Use the pin's original date for feed ordering (createdAt). */
+  sortBySourceDate?: boolean;
 };
 
 export async function publishPinPost(
@@ -414,6 +433,10 @@ export async function publishPinPost(
       (m) => m.kind === "video" || m.kind === "gif",
     );
     const publishedAt = pin.createdAt ? new Date(pin.createdAt) : new Date();
+    const feedCreatedAt = feedCreatedAtFromSource(
+      pin.createdAt,
+      input.sortBySourceDate,
+    );
 
     await db.transaction(async (tx) => {
       await tx.insert(posts).values({
@@ -427,6 +450,7 @@ export async function publishPinPost(
         rawText: pin.text || null,
         providerMeta: pin.raw as object,
         publishedAt,
+        ...(feedCreatedAt && { createdAt: feedCreatedAt }),
         hasVideo,
         autoplayInFeed: hasVideo && (input.autoplayInFeed ?? false),
         imageCount,
@@ -456,6 +480,18 @@ export async function publishPinPost(
           .map((iid) => ({ postId, industryId: iid }));
         if (industryRows.length > 0) {
           await tx.insert(postIndustries).values(industryRows);
+        }
+      }
+      if ((input.styleIds?.length ?? 0) > 0) {
+        const validStyles = await tx
+          .select({ id: stylesTable.id })
+          .from(stylesTable);
+        const validStyle = new Set(validStyles.map((s) => s.id));
+        const styleRows = input.styleIds!
+          .filter((sid) => validStyle.has(sid))
+          .map((sid) => ({ postId, styleId: sid }));
+        if (styleRows.length > 0) {
+          await tx.insert(postStyles).values(styleRows);
         }
       }
     });
@@ -570,6 +606,10 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
     const imageCount = processedMedia.filter((m) => m.kind === "image").length;
     const hasVideo = processedMedia.some((m) => m.kind === "video" || m.kind === "gif");
     const publishedAt = tweet.createdAt ? new Date(tweet.createdAt) : new Date();
+    const feedCreatedAt = feedCreatedAtFromSource(
+      tweet.createdAt,
+      input.sortBySourceDate,
+    );
     const raw = tweet.raw as { full_text?: string; text?: string } | null;
     const rawText = raw?.full_text ?? raw?.text ?? tweet.text;
 
@@ -587,6 +627,7 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
         rawText,
         providerMeta: tweet.raw as object,
         publishedAt,
+        ...(feedCreatedAt && { createdAt: feedCreatedAt }),
         hasVideo,
         // Only autoplay when there's actually a video to play.
         autoplayInFeed: hasVideo && (input.autoplayInFeed ?? false),
@@ -617,6 +658,18 @@ export async function publishPost(input: PublishInput): Promise<PublishResult> {
           .map((iid) => ({ postId, industryId: iid }));
         if (industryRows.length > 0) {
           await tx.insert(postIndustries).values(industryRows);
+        }
+      }
+      if ((input.styleIds?.length ?? 0) > 0) {
+        const validStyles = await tx
+          .select({ id: stylesTable.id })
+          .from(stylesTable);
+        const validStyle = new Set(validStyles.map((s) => s.id));
+        const styleRows = input.styleIds!
+          .filter((sid) => validStyle.has(sid))
+          .map((sid) => ({ postId, styleId: sid }));
+        if (styleRows.length > 0) {
+          await tx.insert(postStyles).values(styleRows);
         }
       }
     });

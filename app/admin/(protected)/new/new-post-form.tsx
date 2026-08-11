@@ -19,7 +19,6 @@ import {
   publishPinPost,
   publishPost,
 } from "./actions";
-import { classifyPostTagsAction } from "./classify-actions";
 import type {
   NormalizedTweet,
   TweetMedia,
@@ -33,11 +32,13 @@ import { ChoiceChip, ChoiceChipGroup } from "./admin-choice-chips";
 
 type Category = { id: string; name: string; slug: string };
 type Industry = { id: string; name: string; slug: string };
+type Style = { id: string; name: string; slug: string };
 type Platform = "x" | "pinterest" | "instagram";
 type ReadyPlatform = "x" | "pinterest";
 /** Shared shape for X + Pinterest preview drafts. */
 type SourcePost = NormalizedTweet | NormalizedPin;
 type SourceMedia = TweetMedia | PinMedia;
+type AiStatus = "idle" | "pending" | "done" | "error";
 
 type DraftItem = {
   source: ReadyPlatform;
@@ -47,13 +48,17 @@ type DraftItem = {
   palettes: PaletteColor[][];
   title: string;
   caption: string;
+  /** At most one category id. */
   selectedCats: Set<string>;
   selectedIndustries: Set<string>;
+  selectedStyles: Set<string>;
   interaction: string | null;
   featured: boolean;
   hiddenGem: boolean;
   autoplayInFeed: boolean;
   selected: boolean;
+  aiStatus: AiStatus;
+  aiError: string | null;
 };
 
 const PLATFORMS: { id: Platform; label: string; ready: boolean }[] = [
@@ -65,9 +70,11 @@ const PLATFORMS: { id: Platform; label: string; ready: boolean }[] = [
 export function NewPostForm({
   categories,
   industries,
+  styles,
 }: {
   categories: Category[];
   industries: Industry[];
+  styles: Style[];
 }) {
   const router = useRouter();
   const [platform, setPlatform] = useState<Platform>("x");
@@ -78,8 +85,13 @@ export function NewPostForm({
   const [mediaIndex, setMediaIndex] = useState(0);
   const [previewPending, startPreview] = useTransition();
   const [publishPending, startPublish] = useTransition();
-  const [aiClassifyPending, startAiClassify] = useTransition();
+  const [aiClassifyPending, setAiClassifyPending] = useState(false);
+  const [aiProgress, setAiProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   const [aiTagError, setAiTagError] = useState<string | null>(null);
+  /** When on, new publishes use the source post date for feed ordering. */
+  const [sortBySourceDate, setSortBySourceDate] = useState(false);
 
   const publicCats = useMemo(() => {
     const order = new Map(PUBLIC_CATEGORY_NAV.map((c, i) => [c.slug, i]));
@@ -105,6 +117,7 @@ export function NewPostForm({
     setErrors([]);
     setActiveId(null);
     setUrlBlob("");
+    setSortBySourceDate(false);
   }
 
   function onFetch(e: React.FormEvent) {
@@ -235,9 +248,8 @@ export function NewPostForm({
 
   function toggleCat(id: string) {
     if (!active) return;
-    const next = new Set(active.selectedCats);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    // Category is single-select — tap again to clear.
+    const next = active.selectedCats.has(id) ? new Set<string>() : new Set([id]);
     patchActive({ selectedCats: next });
     setAiTagError(null);
   }
@@ -251,59 +263,176 @@ export function NewPostForm({
     setAiTagError(null);
   }
 
-  function onAiSuggestTags() {
+  function toggleStyle(id: string) {
     if (!active) return;
-    const media = active.post.media[activeMediaIndex];
-    if (!media) {
-      setAiTagError("No media to analyze on this post.");
-      return;
-    }
-    const imageUrl =
-      media.kind === "image" ? media.url : media.posterUrl ?? null;
-    if (!imageUrl) {
-      setAiTagError(
-        "No still image to analyze — use a post with an image or video poster, then try again.",
-      );
-      return;
-    }
-
+    const next = new Set(active.selectedStyles);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    patchActive({ selectedStyles: next });
     setAiTagError(null);
-    startAiClassify(async () => {
-      const res = await classifyPostTagsAction({
-        imageUrl,
-        caption: active.caption.trim() || undefined,
+  }
+
+  function draftPreviewImage(draft: DraftItem): string | null {
+    const media = draft.post.media[0];
+    if (!media) return null;
+    return media.kind === "image" ? media.url : media.posterUrl ?? null;
+  }
+
+  async function onAiSuggestAll() {
+    const selected = drafts.filter((d) => d.selected);
+    const queue = selected.length ? selected : drafts;
+    const items = queue
+      .map((d) => {
+        const imageUrl = draftPreviewImage(d);
+        if (!imageUrl) return null;
+        return {
+          sourceId: d.sourceId,
+          imageUrl,
+          caption: d.caption.trim() || undefined,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => Boolean(x));
+
+    if (items.length === 0) {
+      setAiTagError(
+        "No still images to analyze — need an image or video poster on each post.",
+      );
+      toast.error("Nothing to analyze with AI.");
+      return;
+    }
+
+    const skipped = queue.length - items.length;
+    setAiTagError(null);
+    setAiClassifyPending(true);
+    setAiProgress({ done: 0, total: items.length });
+    const pendingIds = new Set(items.map((i) => i.sourceId));
+    setDrafts((prev) =>
+      prev.map((d) =>
+        pendingIds.has(d.sourceId)
+          ? { ...d, aiStatus: "pending", aiError: null }
+          : d,
+      ),
+    );
+
+    let ok = 0;
+    let fail = 0;
+
+    try {
+      const res = await fetch("/api/admin/classify-tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
       });
-      if (!res.ok) {
-        setAiTagError(res.error);
-        toast.error("AI tagging failed — pick categories manually.");
-        return;
+      if (!res.ok || !res.body) {
+        const msg =
+          (await res.json().catch(() => null))?.error ??
+          `AI request failed (${res.status}).`;
+        throw new Error(msg);
       }
 
-      patchActive({
-        selectedCats: new Set(res.categoryIds),
-        selectedIndustries: new Set(res.industryIds),
-      });
-      setAiTagError(null);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      const parts: string[] = [];
-      if (res.categoryIds.length > 0) {
-        parts.push(
-          `${res.categoryIds.length} categor${res.categoryIds.length === 1 ? "y" : "ies"}`,
-        );
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let event: {
+            type: string;
+            sourceId?: string;
+            ok?: boolean;
+            error?: string;
+            categoryIds?: string[];
+            industryIds?: string[];
+            styleIds?: string[];
+            fail?: number;
+          };
+          try {
+            event = JSON.parse(trimmed);
+          } catch {
+            continue;
+          }
+
+          if (event.type === "result" && event.sourceId) {
+            if (event.ok) {
+              ok++;
+              setDrafts((prev) =>
+                prev.map((d) =>
+                  d.sourceId === event.sourceId
+                    ? {
+                        ...d,
+                        selectedCats: new Set(
+                          (event.categoryIds ?? []).slice(0, 1),
+                        ),
+                        selectedIndustries: new Set(event.industryIds ?? []),
+                        selectedStyles: new Set(event.styleIds ?? []),
+                        aiStatus: "done",
+                        aiError: null,
+                      }
+                    : d,
+                ),
+              );
+            } else {
+              fail++;
+              setDrafts((prev) =>
+                prev.map((d) =>
+                  d.sourceId === event.sourceId
+                    ? {
+                        ...d,
+                        aiStatus: "error",
+                        aiError: event.error ?? "AI failed.",
+                      }
+                    : d,
+                ),
+              );
+            }
+            setAiProgress((p) =>
+              p ? { ...p, done: Math.min(p.done + 1, p.total) } : p,
+            );
+          }
+        }
       }
-      if (res.industryIds.length > 0) {
-        parts.push(
-          `${res.industryIds.length} industr${res.industryIds.length === 1 ? "y" : "ies"}`,
-        );
-      }
-      toast.success(`AI suggested ${parts.join(" and ")}.`);
-    });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "AI classification failed.";
+      setAiTagError(message);
+      setDrafts((prev) =>
+        prev.map((d) =>
+          d.aiStatus === "pending"
+            ? { ...d, aiStatus: "error", aiError: message }
+            : d,
+        ),
+      );
+      toast.error("AI tagging failed.");
+      setAiClassifyPending(false);
+      setAiProgress(null);
+      return;
+    }
+
+    setAiClassifyPending(false);
+    setAiProgress(null);
+    if (skipped > 0) {
+      toast.message(
+        `Tagged ${ok}, failed ${fail}, skipped ${skipped} (no image).`,
+      );
+    } else if (fail === 0) {
+      toast.success(`AI tagged ${ok} post${ok === 1 ? "" : "s"}.`);
+    } else {
+      toast.message(`AI tagged ${ok}, failed ${fail}.`);
+    }
   }
 
   function onPublishOne() {
     if (!active) return;
     startPublish(async () => {
-      const res = await publishDraft(active);
+      const res = await publishDraft(active, sortBySourceDate);
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -325,7 +454,7 @@ export function NewPostForm({
       let fail = 0;
       const publishedIds = new Set<string>();
       for (const draft of queue) {
-        const res = await publishDraft(draft);
+        const res = await publishDraft(draft, sortBySourceDate);
         if (res.ok) {
           ok++;
           publishedIds.add(draft.sourceId);
@@ -394,6 +523,26 @@ export function NewPostForm({
                   rows={6}
                   className="font-mono text-sm"
                 />
+                <label className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-muted/30 px-3.5 py-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={sortBySourceDate}
+                    onChange={(e) => setSortBySourceDate(e.target.checked)}
+                    disabled={previewPending}
+                    className="mt-0.5 shrink-0"
+                  />
+                  <span>
+                    <span className="font-medium">
+                      Sort by original post date
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      When enabled, each post uses its{" "}
+                      {platform === "x" ? "X" : "Pinterest"} publish date in the
+                      feed (newest first). When off, posts sort by import time.
+                      Only affects posts published in this session.
+                    </span>
+                  </span>
+                </label>
                 <div className="flex justify-end">
                   <Button
                     type="submit"
@@ -482,12 +631,74 @@ export function NewPostForm({
                       className="shrink-0"
                     />
                     <span className="truncate">@{d.post.creator.username}</span>
+                    {d.aiStatus === "pending" ? (
+                      <span
+                        className={cn(
+                          "ml-auto shrink-0 text-[10px]",
+                          d.sourceId === active.sourceId
+                            ? "text-white/70"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        AI…
+                      </span>
+                    ) : d.aiStatus === "done" ? (
+                      <span
+                        className={cn(
+                          "ml-auto shrink-0 text-[10px]",
+                          d.sourceId === active.sourceId
+                            ? "text-emerald-200"
+                            : "text-emerald-600",
+                        )}
+                      >
+                        Tagged
+                      </span>
+                    ) : d.aiStatus === "error" ? (
+                      <span
+                        className={cn(
+                          "ml-auto shrink-0 text-[10px]",
+                          d.sourceId === active.sourceId
+                            ? "text-red-200"
+                            : "text-destructive",
+                        )}
+                      >
+                        Failed
+                      </span>
+                    ) : sortBySourceDate ? (
+                      <span
+                        className={cn(
+                          "ml-auto shrink-0 text-[10px] tabular-nums",
+                          d.sourceId === active.sourceId
+                            ? "text-white/70"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {formatSourceDate(d.post.createdAt)}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
                 <Button
-                  className="mt-3"
+                  variant="outline"
+                  className="mt-3 gap-1.5"
+                  onClick={onAiSuggestAll}
+                  disabled={aiClassifyPending || publishPending}
+                >
+                  <Sparkles className="size-3.5" aria-hidden />
+                  {aiClassifyPending && aiProgress
+                    ? `AI ${aiProgress.done}/${aiProgress.total}…`
+                    : `Suggest with AI${
+                        drafts.some((d) => d.selected)
+                          ? ` (${drafts.filter((d) => d.selected).length})`
+                          : drafts.length > 1
+                            ? ` (${drafts.length})`
+                            : ""
+                      }`}
+                </Button>
+                <Button
+                  className="mt-2"
                   onClick={onPublishSelected}
-                  disabled={publishPending}
+                  disabled={publishPending || aiClassifyPending}
                 >
                   {publishPending
                     ? "Publishing…"
@@ -513,6 +724,8 @@ export function NewPostForm({
                 <AuthorMeta
                   creator={active.post.creator}
                   mediaCount={active.post.media.length}
+                  sourceDate={active.post.createdAt}
+                  sortBySourceDate={sortBySourceDate}
                 />
               </div>
             </CardHeader>
@@ -582,8 +795,9 @@ export function NewPostForm({
                       <div className="min-w-0">
                         <p className="text-sm font-medium">AI tag suggestions</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          Analyzes the current preview frame and pre-selects category
-                          + industry chips. You can still edit before publishing.
+                          One button tags every selected post (or all in the queue).
+                          Results stream in as each post finishes — category is
+                          single-select; industries and styles can be multiple.
                         </p>
                       </div>
                       <Button
@@ -592,12 +806,29 @@ export function NewPostForm({
                         size="sm"
                         className="shrink-0 gap-1.5"
                         disabled={aiClassifyPending || publishPending}
-                        onClick={onAiSuggestTags}
+                        onClick={onAiSuggestAll}
                       >
                         <Sparkles className="size-3.5" aria-hidden />
-                        {aiClassifyPending ? "Analyzing…" : "Suggest with AI"}
+                        {aiClassifyPending && aiProgress
+                          ? `AI ${aiProgress.done}/${aiProgress.total}…`
+                          : drafts.length > 1
+                            ? "Suggest all with AI"
+                            : "Suggest with AI"}
                       </Button>
                     </div>
+                    {aiProgress ? (
+                      <p className="text-xs text-muted-foreground tabular-nums">
+                        Tagging {aiProgress.done} of {aiProgress.total}…
+                      </p>
+                    ) : null}
+                    {active.aiError ? (
+                      <p
+                        role="alert"
+                        className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+                      >
+                        {active.aiError}
+                      </p>
+                    ) : null}
                     {aiTagError ? (
                       <p
                         role="alert"
@@ -610,7 +841,7 @@ export function NewPostForm({
 
                   <ChoiceChipGroup
                     label="Category"
-                    hint="Public nav list"
+                    hint="Pick one"
                   >
                     {publicCats.map((c) => (
                       <ChoiceChip
@@ -632,6 +863,20 @@ export function NewPostForm({
                         label={i.name}
                         active={active.selectedIndustries.has(i.id)}
                         onClick={() => toggleIndustry(i.id)}
+                      />
+                    ))}
+                  </ChoiceChipGroup>
+
+                  <ChoiceChipGroup
+                    label="Style"
+                    hint="Visual look — Light, Dark, Minimal…"
+                  >
+                    {styles.map((s) => (
+                      <ChoiceChip
+                        key={s.id}
+                        label={s.name}
+                        active={active.selectedStyles.has(s.id)}
+                        onClick={() => toggleStyle(s.id)}
                       />
                     ))}
                   </ChoiceChipGroup>
@@ -689,6 +934,17 @@ export function NewPostForm({
                     </label>
                   ) : null}
 
+                  {sortBySourceDate && !active.post.createdAt ? (
+                    <p
+                      role="status"
+                      className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+                    >
+                      No original publish date from{" "}
+                      {active.source === "x" ? "X" : "Pinterest"} — this post
+                      will sort by import time.
+                    </p>
+                  ) : null}
+
                   <div className="sticky bottom-0 z-10 mt-1 flex justify-end gap-2 border-t border-border/60 bg-card/95 py-4 backdrop-blur-sm supports-backdrop-filter:bg-card/80">
                     <Button
                       variant="outline"
@@ -702,7 +958,7 @@ export function NewPostForm({
                     >
                       Clear
                     </Button>
-                    <Button onClick={onPublishOne} disabled={publishPending}>
+                    <Button onClick={onPublishOne} disabled={publishPending || aiClassifyPending}>
                       {publishPending ? "Publishing…" : "Publish this"}
                     </Button>
                   </div>
@@ -714,6 +970,19 @@ export function NewPostForm({
       ) : null}
     </div>
   );
+}
+
+function formatSourceDate(iso: string | null): string {
+  if (!iso) return "No date";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Invalid date";
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function toDraft(
@@ -733,21 +1002,28 @@ function toDraft(
     caption: post.text,
     selectedCats: new Set(),
     selectedIndustries: new Set(),
+    selectedStyles: new Set(),
     interaction: null,
     featured: false,
     hiddenGem: false,
     // Default off — autoplay × many users = full video downloads (R2 Class B).
     autoplayInFeed: false,
     selected: true,
+    aiStatus: "idle",
+    aiError: null,
   };
 }
 
 function AuthorMeta({
   creator,
   mediaCount,
+  sourceDate,
+  sortBySourceDate,
 }: {
   creator: SourcePost["creator"];
   mediaCount: number;
+  sourceDate: string | null;
+  sortBySourceDate: boolean;
 }) {
   return (
     <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-muted/40 px-2.5 py-2">
@@ -769,6 +1045,14 @@ function AuthorMeta({
           @{creator.username}
           <span className="mx-1.5 text-border">·</span>
           {mediaCount} media
+          {sortBySourceDate ? (
+            <>
+              <span className="mx-1.5 text-border">·</span>
+              <span className="tabular-nums">
+                {formatSourceDate(sourceDate)}
+              </span>
+            </>
+          ) : null}
         </div>
       </div>
     </div>
@@ -931,17 +1215,22 @@ function MediaThumb({
   );
 }
 
-async function publishDraft(draft: DraftItem) {
+async function publishDraft(
+  draft: DraftItem,
+  sortBySourceDate: boolean,
+) {
   const shared = {
     title: draft.title,
     caption: draft.caption,
     categoryIds: Array.from(draft.selectedCats),
     industryIds: Array.from(draft.selectedIndustries),
+    styleIds: Array.from(draft.selectedStyles),
     mediaColors: draft.palettes,
     autoplayInFeed: draft.autoplayInFeed,
     featured: draft.featured,
     hiddenGem: draft.hiddenGem,
     interaction: draft.interaction,
+    sortBySourceDate,
   };
   if (draft.source === "pinterest") {
     return publishPinPost({ pinId: draft.sourceId, ...shared });

@@ -187,6 +187,36 @@ export const postIndustries = pgTable(
   ],
 );
 
+/** Admin visual style tags (Minimal, Dark, Playful, etc.) — not public nav. */
+export const styles = pgTable(
+  "styles",
+  {
+    id: text("id").primaryKey(),
+    slug: varchar("slug", { length: 100 }).notNull(),
+    name: varchar("name", { length: 100 }).notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("styles_slug_uniq").on(t.slug)],
+);
+
+export const postStyles = pgTable(
+  "post_styles",
+  {
+    postId: text("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    styleId: text("style_id")
+      .notNull()
+      .references(() => styles.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.postId, t.styleId] }),
+    index("post_styles_style_idx").on(t.styleId),
+  ],
+);
+
 /**
  * Global key/value settings, edited from the admin panel. Currently holds the
  * "feed autoplay" flag; kept generic so future toggles reuse the same table.
@@ -211,6 +241,9 @@ export type PostCategory = typeof postCategories.$inferSelect;
 export type Industry = typeof industries.$inferSelect;
 export type NewIndustry = typeof industries.$inferInsert;
 export type PostIndustry = typeof postIndustries.$inferSelect;
+export type Style = typeof styles.$inferSelect;
+export type NewStyle = typeof styles.$inferInsert;
+export type PostStyle = typeof postStyles.$inferSelect;
 
 /** Ambient SQL fragment for FTS — used when we add a generated column via SQL migration. */
 export const postSearchExpression = sql`

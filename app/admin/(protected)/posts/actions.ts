@@ -8,7 +8,9 @@ import {
   media as mediaTable,
   postCategories,
   postIndustries,
+  postStyles,
   posts,
+  styles as stylesTable,
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { deleteR2Urls } from "@/lib/r2/delete";
@@ -65,6 +67,7 @@ export type UpdatePostInput = {
   interaction: string | null;
   categoryIds: string[];
   industryIds?: string[];
+  styleIds?: string[];
   /** Admin-edited colour palettes, keyed by media id. */
   mediaColors?: { mediaId: string; colors: PaletteColor[] }[];
 };
@@ -122,6 +125,20 @@ export async function updatePost(input: UpdatePostInput): Promise<ActionResult> 
           industryId: i.id,
         }));
         if (rows.length > 0) await tx.insert(postIndustries).values(rows);
+      }
+
+      await tx.delete(postStyles).where(eq(postStyles.postId, input.postId));
+
+      if ((input.styleIds?.length ?? 0) > 0) {
+        const valid = await tx
+          .select({ id: stylesTable.id })
+          .from(stylesTable)
+          .where(inArray(stylesTable.id, input.styleIds!));
+        const rows = valid.map((s) => ({
+          postId: input.postId,
+          styleId: s.id,
+        }));
+        if (rows.length > 0) await tx.insert(postStyles).values(rows);
       }
     });
 

@@ -57,6 +57,13 @@
       "when": 1785298070756,
       "tag": "0007_industries_ensure",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785298070757,
+      "tag": "0008_styles",
+      "breakpoints": true
     }
   ]
 }

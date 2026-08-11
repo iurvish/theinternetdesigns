@@ -20,6 +20,7 @@ import {
 
 type Category = { id: string; name: string; slug: string };
 type Industry = { id: string; name: string; slug: string };
+type Style = { id: string; name: string; slug: string };
 
 export function EditPostForm({
   postId,
@@ -33,8 +34,10 @@ export function EditPostForm({
   hasVideo,
   initialCategoryIds,
   initialIndustryIds,
+  initialStyleIds,
   categories,
   industries,
+  styles,
   media,
 }: {
   postId: string;
@@ -48,8 +51,10 @@ export function EditPostForm({
   hasVideo: boolean;
   initialCategoryIds: string[];
   initialIndustryIds: string[];
+  initialStyleIds: string[];
   categories: Category[];
   industries: Industry[];
+  styles: Style[];
   media: EditMedia[];
 }) {
   const router = useRouter();
@@ -63,6 +68,9 @@ export function EditPostForm({
   const [selected, setSelected] = useState<Set<string>>(new Set(initialCategoryIds));
   const [selectedIndustries, setSelectedIndustries] = useState<Set<string>>(
     new Set(initialIndustryIds),
+  );
+  const [selectedStyles, setSelectedStyles] = useState<Set<string>>(
+    new Set(initialStyleIds),
   );
   const [palettes, setPalettes] = useState<Record<string, PaletteColor[]>>(() =>
     Object.fromEntries(media.map((m) => [m.id, m.colors])),
@@ -78,6 +86,13 @@ export function EditPostForm({
 
   function toggle(id: string) {
     setSelected((prev) => {
+      if (prev.has(id)) return new Set();
+      return new Set([id]);
+    });
+  }
+
+  function toggleIndustry(id: string) {
+    setSelectedIndustries((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -85,8 +100,8 @@ export function EditPostForm({
     });
   }
 
-  function toggleIndustry(id: string) {
-    setSelectedIndustries((prev) => {
+  function toggleStyle(id: string) {
+    setSelectedStyles((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -107,6 +122,7 @@ export function EditPostForm({
         interaction,
         categoryIds: Array.from(selected),
         industryIds: Array.from(selectedIndustries),
+        styleIds: Array.from(selectedStyles),
         mediaColors: media.map((m) => ({
           mediaId: m.id,
           colors: palettes[m.id] ?? [],
@@ -144,7 +160,7 @@ export function EditPostForm({
           />
         </div>
 
-        <ChoiceChipGroup label="Category">
+        <ChoiceChipGroup label="Category" hint="Pick one">
           {publicCats.map((c) => (
             <ChoiceChip
               key={c.id}
@@ -162,6 +178,17 @@ export function EditPostForm({
               label={i.name}
               active={selectedIndustries.has(i.id)}
               onClick={() => toggleIndustry(i.id)}
+            />
+          ))}
+        </ChoiceChipGroup>
+
+        <ChoiceChipGroup label="Style" hint="Visual look — Light, Dark, Minimal…">
+          {styles.map((s) => (
+            <ChoiceChip
+              key={s.id}
+              label={s.name}
+              active={selectedStyles.has(s.id)}
+              onClick={() => toggleStyle(s.id)}
             />
           ))}
         </ChoiceChipGroup>

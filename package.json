@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "seed:categories": "tsx scripts/seed-categories.ts",
-    "backfill:colors": "tsx scripts/backfill-colors.ts"
+    "backfill:colors": "tsx scripts/backfill-colors.ts",
+    "backfill:cdn-urls": "tsx scripts/rewrite-r2-cdn-urls.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.39",
