@@ -38,8 +38,8 @@ Browse landing pages, interfaces, micro-interactions, product design, typography
 ### Setup
 
 ```bash
-git clone https://github.com/iurvish/idesigns.git
-cd idesigns
+git clone https://github.com/iurvish/theinternetdesigns.git
+cd theinternetdesigns
 npm install
 cp .env.example .env.local
 ```
