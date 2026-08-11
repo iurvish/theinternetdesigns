@@ -29,6 +29,9 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "pbs.twimg.com" },
       { protocol: "https", hostname: "abs.twimg.com" },
       { protocol: "https", hostname: "video.twimg.com" },
+            { protocol: "https", hostname: "cdn.theinternetdesigns.com" },
+
+      
       ...(cdnHost ? [{ protocol: "https" as const, hostname: cdnHost }] : []),
     ],
   },
