@@ -1,36 +1,119 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# The Internet Designs
 
-## Getting Started
+Curated UI & design inspiration from X, Pinterest, and across the web.
 
-First, run the development server:
+**Live site:** [internetdesigns.com](https://internetdesigns.com)
+
+Browse landing pages, interfaces, micro-interactions, product design, typography, 3D, brand work, logos, and illustration — all collected in one gallery.
+
+## Features
+
+- **Explore feed** — masonry grid of curated design posts with infinite scroll
+- **Categories** — Interfaces, Landing pages, Mobile apps, Dashboards, Interactions, Product, Typography, 3D, Brand, Logo, Illustration
+- **Creators** — browse work by designer / account
+- **Search** — find posts by keyword or color palette
+- **Admin studio** — import from X or Pinterest, tag with AI, manage categories & creators
+- **Media pipeline** — images/videos stored on Cloudflare R2 with color extraction
+
+## Stack
+
+| Layer | Tech |
+| --- | --- |
+| Framework | [Next.js](https://nextjs.org) (App Router) |
+| UI | React 19, Tailwind CSS, Base UI / shadcn |
+| Database | Postgres via [Drizzle ORM](https://orm.drizzle.team) + Supabase |
+| Auth | Supabase Auth (admin) |
+| Storage | Cloudflare R2 |
+| AI | Google Gemini (optional tag suggestions) |
+| Motion | Motion |
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 20+ (or [Bun](https://bun.sh))
+- A Supabase project (Postgres + Auth)
+- A Cloudflare R2 bucket (optional for local browse-only)
+
+### Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/iurvish/idesigns.git
+cd idesigns
+npm install
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Fill in `.env.local` with your credentials (see Environment below), then:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run db:migrate
+npm run seed:categories
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Learn More
+Admin lives at `/admin` after you create a Supabase user and sign in.
 
-To learn more about Next.js, take a look at the following resources:
+### Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the Next.js dev server |
+| `npm run build` | Production build |
+| `npm run start` | Run the production server |
+| `npm run lint` | ESLint |
+| `npm run db:generate` | Generate Drizzle migrations |
+| `npm run db:migrate` | Apply migrations |
+| `npm run db:studio` | Open Drizzle Studio |
+| `npm run seed:categories` | Seed public categories |
+| `npm run backfill:colors` | Backfill extracted color palettes |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Environment
 
-## Deploy on Vercel
+Copy `.env.example` → `.env.local` and set:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+# Supabase Postgres
+DATABASE_URL=           # pooled connection URI
+DIRECT_URL=             # unpooled URI (migrations)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Supabase Auth
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Cloudflare R2
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET=
+R2_PUBLIC_URL=          # public CDN base, no trailing slash
+
+# Site
+NEXT_PUBLIC_SITE_URL=https://internetdesigns.com
+
+# Optional
+# GEMINI_API_KEY=       # AI tag suggestions in admin
+# TWEET_PROVIDER=syndication
+# PINTEREST_COOKIE=
+```
+
+## Project structure
+
+```
+app/
+  (public)/          # Explore, categories, creators, post pages
+  admin/             # Auth-gated admin (posts, creators, categories)
+  api/               # Preview & media helpers
+components/          # Shared UI & layout
+features/posts/      # Feed, masonry, palettes, queries
+lib/                 # DB, R2, auth, providers (X / Pinterest)
+drizzle/             # SQL migrations
+scripts/             # Seed & backfill utilities
+```
+
+## License
+
+Private — all rights reserved.
