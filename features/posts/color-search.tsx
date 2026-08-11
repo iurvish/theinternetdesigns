@@ -57,7 +57,9 @@ function hsvToRgb({ h, s, v }: HSV) {
   const c = v * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = v - c;
-  let r = 0, g = 0, b = 0;
+  let r = 0,
+    g = 0,
+    b = 0;
   if (h < 60) [r, g, b] = [c, x, 0];
   else if (h < 120) [r, g, b] = [x, c, 0];
   else if (h < 180) [r, g, b] = [0, c, x];
@@ -82,7 +84,9 @@ function hexToHsv(hex: string): HSV | null {
   const r = ((int >> 16) & 255) / 255;
   const g = ((int >> 8) & 255) / 255;
   const b = (int & 255) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b),
+    d = max - min;
   let h = 0;
   if (d) {
     if (max === r) h = ((g - b) / d) % 6;
@@ -97,7 +101,14 @@ function hexToHsv(hex: string): HSV | null {
 /* ── colour-dots glyph (Figma node 16:254) ──────────────────────────────── */
 function ColorDotsIcon({ className }: { className?: string }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className={className} aria-hidden>
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 18 18"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
       <circle cx="9" cy="3.21" r="2.32" fill="#9c6030" />
       <circle cx="15.09" cy="7.63" r="2.32" fill="#a0213e" />
       <circle cx="12.76" cy="14.79" r="2.32" fill="#ebb042" />
@@ -127,7 +138,8 @@ function ColorSwatch({
   const tileClass = cn(
     "block overflow-hidden ring-1 ring-inset ring-black/10",
     dim,
-    onClick && "transition-transform active:scale-[0.94] motion-reduce:active:scale-100",
+    onClick &&
+      "transition-transform active:scale-[0.94] motion-reduce:active:scale-100",
   );
 
   return (
@@ -148,7 +160,11 @@ function ColorSwatch({
           aria-current={active ? "true" : undefined}
         />
       ) : (
-        <span className={tileClass} style={{ backgroundColor: color }} aria-hidden />
+        <span
+          className={tileClass}
+          style={{ backgroundColor: color }}
+          aria-hidden
+        />
       )}
       {onRemove ? (
         <button
@@ -160,10 +176,15 @@ function ColorSwatch({
           aria-label={`Remove ${color}`}
           className={cn(
             "absolute flex items-center justify-center rounded-full bg-[#1f2123] text-white shadow-sm",
-            size === "md" ? "-right-1.5 -top-1.5 size-4" : "-right-1 -top-1 size-3.5",
+            size === "md"
+              ? "-right-1.5 -top-1.5 size-4"
+              : "-right-1 -top-1 size-3.5",
           )}
         >
-          <X className={size === "md" ? "size-2.5" : "size-2"} strokeWidth={2.5} />
+          <X
+            className={size === "md" ? "size-2.5" : "size-2"}
+            strokeWidth={2.5}
+          />
         </button>
       ) : null}
     </div>
@@ -181,7 +202,9 @@ export function ColorSearch({
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [hsv, setHsv] = useState<HSV>({ h: 145, s: 0.55, v: 0.87 });
-  const [hexInput, setHexInput] = useState(() => hsvToHex({ h: 145, s: 0.55, v: 0.87 }));
+  const [hexInput, setHexInput] = useState(() =>
+    hsvToHex({ h: 145, s: 0.55, v: 0.87 }),
+  );
   const [draft, setDraft] = useState<string[]>(selected);
   const [editIdx, setEditIdx] = useState(selected.length);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -328,7 +351,11 @@ export function ColorSearch({
   };
 
   const useEyedropper = async () => {
-    const EyeDropper = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+    const EyeDropper = (
+      window as unknown as {
+        EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> };
+      }
+    ).EyeDropper;
     if (!EyeDropper) return;
     try {
       const { sRGBHex } = await new EyeDropper().open();
@@ -416,7 +443,7 @@ export function ColorSearch({
             style={{ transformOrigin: "top left" }}
             className="pointer-events-none absolute left-0 top-full z-50 mt-2 whitespace-nowrap rounded-lg bg-[#1f2123] px-2.5 py-1.5 text-xs font-medium text-white shadow-[0_6px_20px_-6px_rgba(0,0,0,0.35)]"
           >
-            Search by colour
+            Search by colors
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -442,7 +469,7 @@ export function ColorSearch({
                   <ColorSwatch
                     color={current}
                     size="sm"
-                    className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2"
+                    className="pointer-events-none absolute left-1 top-1/2 z-10 -translate-y-1/2"
                   />
                   <Input
                     value={hexInput}
@@ -496,7 +523,7 @@ export function ColorSearch({
               <button
                 type="button"
                 onClick={onSearch}
-                className="relative h-9 w-full overflow-hidden rounded-2xl bg-[#1f2123] text-sm font-medium tracking-tight text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.14)] transition-[transform,background-color] hover:bg-[#2a2c2e] active:scale-[0.98] motion-reduce:active:scale-100"
+                className="relative h-9 w-full overflow-hidden rounded-xl bg-[#1f2123] text-sm font-medium tracking-tight text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.14)] transition-[transform,background-color] hover:bg-[#2a2c2e] active:scale-[0.98] motion-reduce:active:scale-100"
               >
                 <span
                   aria-hidden
@@ -546,7 +573,8 @@ function SvSquare({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
         pick(e.clientX, e.clientY);
       }}
       onPointerMove={(e) => {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) pick(e.clientX, e.clientY);
+        if (e.currentTarget.hasPointerCapture(e.pointerId))
+          pick(e.clientX, e.clientY);
       }}
       className="relative aspect-[4/3] w-full cursor-crosshair touch-none select-none overflow-hidden rounded-xl ring-1 ring-inset ring-black/8"
       style={{
@@ -557,14 +585,24 @@ function SvSquare({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
     >
       <span
         className="pointer-events-none absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.25)]"
-        style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, backgroundColor: hsvToHex(hsv) }}
+        style={{
+          left: `${hsv.s * 100}%`,
+          top: `${(1 - hsv.v) * 100}%`,
+          backgroundColor: hsvToHex(hsv),
+        }}
       />
     </div>
   );
 }
 
 /* ── hue slider ─────────────────────────────────────────────────────────── */
-function HueSlider({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) {
+function HueSlider({
+  hsv,
+  onChange,
+}: {
+  hsv: HSV;
+  onChange: (h: HSV) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
 
   const pick = useCallback(
@@ -602,7 +640,10 @@ function HueSlider({ hsv, onChange }: { hsv: HSV; onChange: (h: HSV) => void }) 
     >
       <span
         className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.2)]"
-        style={{ left: `${(hsv.h / 360) * 100}%`, backgroundColor: `hsl(${hsv.h} 100% 50%)` }}
+        style={{
+          left: `${(hsv.h / 360) * 100}%`,
+          backgroundColor: `hsl(${hsv.h} 100% 50%)`,
+        }}
       />
     </div>
   );
