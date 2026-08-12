@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "@/components/ui/sonner";
 import { publicEnv } from "@/lib/env";
 import { buildSiteMetadata } from "@/lib/site-config";
@@ -38,6 +39,7 @@ export default function RootLayout({
       >
         {children}
         <Toaster position="top-center" richColors />
+        <Analytics />
       </body>
     </html>
   );

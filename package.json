@@ -22,6 +22,7 @@
     "@rexa-developer/tiks": "^0.3.0",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
+    "@vercel/analytics": "^2.0.1",
     "ai": "^7.0.58",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
