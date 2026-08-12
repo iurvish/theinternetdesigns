@@ -14,8 +14,6 @@ const cdnHost = (() => {
 })();
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["192.168.10.159",'10.32.222.113'],
-
   turbopack: {
     root: __dirname,
   },

@@ -10,19 +10,12 @@ import {
 } from "react";
 import Image from "next/image";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import {
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-} from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown } from "lucide-react";
 import type { PostListItem, FeedSort } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
 import { ColorSearch } from "./color-search";
-import {
-  FeedMediaNav,
-  NAV_OPEN_AFFORDANCE_CLASS,
-} from "./media-nav-pill";
+import { FeedMediaNav, NAV_OPEN_AFFORDANCE_CLASS } from "./media-nav-pill";
 import { searchByColorsAction } from "./color-search-action";
 import { loadFeedPageAction } from "./feed-actions";
 import { SetupRequired } from "@/components/setup-required";
@@ -134,7 +127,7 @@ const SORT_MENU_WIDTH = "w-[176px]";
 const TAG_SEGMENT_SHADOW =
   "shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
 
-const GITHUB_REPO_URL = "https://github.com/iurvish/idesigns";
+const GITHUB_REPO_URL = "https://github.com/iurvish/theinternetdesigns";
 
 /**
  * Figma 166-230 / Paper Frame 7 — grey stroke on L+R+B, white inset bevel on
@@ -244,10 +237,10 @@ export function ExploreFeed({
                 <ColorSearch selected={colors} onSelected={setColors} />
                 <div className="flex shrink-0 items-center gap-2">
                   <SortMenu
-                  value={sort}
-                  onChange={setSort}
-                  onPrefetch={(next) => void prefetchFeedPage(active, next)}
-                />
+                    value={sort}
+                    onChange={setSort}
+                    onPrefetch={(next) => void prefetchFeedPage(active, next)}
+                  />
                   <GitHubStarLink />
                 </div>
               </div>
@@ -382,7 +375,9 @@ function FeedBody({
   useEffect(() => {
     if (active !== "all" || sort !== "recent") return;
 
-    const cachedPosts = asPostList(feedPageCache.get(DEFAULT_FILTER_KEY)?.posts);
+    const cachedPosts = asPostList(
+      feedPageCache.get(DEFAULT_FILTER_KEY)?.posts,
+    );
     const keepLonger = cachedPosts.length > initialPosts.length;
 
     if (keepLonger) {
@@ -484,7 +479,12 @@ function FeedBody({
   }, [active, sort]);
 
   const loadMore = useCallback(async () => {
-    if (loadingMoreRef.current || !hasMore || colors.length > 0 || feedBootstrapping)
+    if (
+      loadingMoreRef.current ||
+      !hasMore ||
+      colors.length > 0 ||
+      feedBootstrapping
+    )
       return;
     const gen = loadGen.current;
     const filterKey = `${active}|${sort}`;
@@ -590,13 +590,13 @@ function FeedBody({
     () => visible.map((p, i) => postAspectRatioValue(p, i)),
     [visible],
   );
-  const { one: buckets1, two: buckets2, three: buckets3 } =
-    useResponsiveMasonryBuckets(aspectRatios);
+  const {
+    one: buckets1,
+    two: buckets2,
+    three: buckets3,
+  } = useResponsiveMasonryBuckets(aspectRatios);
 
-  const mapBuckets = (
-    buckets: number[][],
-    mode: "static" | "interactive",
-  ) =>
+  const mapBuckets = (buckets: number[][], mode: "static" | "interactive") =>
     buckets.map((indices) =>
       indices.map((i) => {
         const p = visible[i]!;
@@ -654,12 +654,18 @@ function FeedBody({
     <>
       <GridBox fill={isEmpty}>
         <div
-          className={cn("w-full", isEmpty && "flex min-h-[50vh] flex-1 flex-col")}
+          className={cn(
+            "w-full",
+            isEmpty && "flex min-h-[50vh] flex-1 flex-col",
+          )}
         >
           {showSkeleton ? (
             <GridSkeletonColumns />
           ) : isEmpty ? (
-            <EmptyState hasPosts={initialPosts.length > 0} colorSearch={colorActive} />
+            <EmptyState
+              hasPosts={initialPosts.length > 0}
+              colorSearch={colorActive}
+            />
           ) : (
             <>
               <MasonryGrid
@@ -695,7 +701,11 @@ function FeedBody({
                         key={col}
                         className={cn(
                           "animate-pulse rounded-lg bg-[#ececee]",
-                          col % 3 === 0 ? "h-64" : col % 3 === 1 ? "h-52" : "h-72",
+                          col % 3 === 0
+                            ? "h-64"
+                            : col % 3 === 1
+                              ? "h-52"
+                              : "h-72",
                         )}
                       />,
                     ])}
@@ -759,17 +769,26 @@ function GridSkeletonColumns() {
     <div className="flex w-full items-start gap-2.5">
       <div className="flex min-w-0 flex-1 flex-col gap-2.5">
         {heights.slice(0, 3).map((h, i) => (
-          <div key={i} className={cn("animate-pulse rounded-lg bg-[#ececee]", h)} />
+          <div
+            key={i}
+            className={cn("animate-pulse rounded-lg bg-[#ececee]", h)}
+          />
         ))}
       </div>
       <div className="hidden min-w-0 flex-1 flex-col gap-2.5 sm:flex">
         {heights.slice(2, 5).map((h, i) => (
-          <div key={i} className={cn("animate-pulse rounded-lg bg-[#ececee]", h)} />
+          <div
+            key={i}
+            className={cn("animate-pulse rounded-lg bg-[#ececee]", h)}
+          />
         ))}
       </div>
       <div className="hidden min-w-0 flex-1 flex-col gap-2.5 md:flex">
         {heights.slice(1, 4).map((h, i) => (
-          <div key={i} className={cn("animate-pulse rounded-lg bg-[#ececee]", h)} />
+          <div
+            key={i}
+            className={cn("animate-pulse rounded-lg bg-[#ececee]", h)}
+          />
         ))}
       </div>
     </div>
@@ -955,7 +974,7 @@ function SortMenu({
               POPOVER_SHADOW,
             )}
           >
-            {(SORT_ORDER).map((k) => {
+            {SORT_ORDER.map((k) => {
               const active = value === k;
               return (
                 <button
@@ -969,11 +988,16 @@ function SortMenu({
                   }}
                   className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm tracking-[-0.015em] transition-colors hover:bg-[#f2f2f2]"
                 >
-                  <span className={active ? "text-[#1f2123]" : "text-[#707275]"}>
+                  <span
+                    className={active ? "text-[#1f2123]" : "text-[#707275]"}
+                  >
                     {SORT_LABELS[k]}
                   </span>
                   {active ? (
-                    <Check className="size-4 shrink-0 text-[#1f2123]" strokeWidth={2} />
+                    <Check
+                      className="size-4 shrink-0 text-[#1f2123]"
+                      strokeWidth={2}
+                    />
                   ) : (
                     <span className="size-4 shrink-0" aria-hidden />
                   )}
@@ -1088,7 +1112,13 @@ function useViewportPresence(enabled: boolean) {
  * SSR/hydration placeholder — same geometry as MasonryCard, no layoutId / video.
  * Positions match the interactive grid so hydration never reshuffles posts.
  */
-function StaticFeedCard({ post, index }: { post: PostListItem; index: number }) {
+function StaticFeedCard({
+  post,
+  index,
+}: {
+  post: PostListItem;
+  index: number;
+}) {
   const aspectRatio =
     post.thumbnail?.width && post.thumbnail?.height
       ? `${post.thumbnail.width} / ${post.thumbnail.height}`
@@ -1177,7 +1207,11 @@ function MasonryCard({
     ? media.find((m) => m.kind === "video" || m.kind === "gif")
     : undefined;
 
-  const { ref: viewportRef, near, inView } = useViewportPresence(Boolean(videoItem));
+  const {
+    ref: viewportRef,
+    near,
+    inView,
+  } = useViewportPresence(Boolean(videoItem));
 
   // Clamp defensively — the shared map could hold a stale index after a filter change.
   const mediaIdx = Math.min(
@@ -1265,9 +1299,7 @@ function MasonryCard({
           <CardVideo
             src={videoItem.url}
             poster={videoItem.posterUrl ?? post.thumbnail?.url ?? null}
-            play={
-              ((post.autoplayInFeed && inView) || hovered) && !suspended
-            }
+            play={((post.autoplayInFeed && inView) || hovered) && !suspended}
             postId={post.id}
             getVideoTime={getVideoTime}
             setVideoTime={setVideoTime}
