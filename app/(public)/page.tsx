@@ -1,8 +1,12 @@
+import { Suspense } from "react";
 import { db } from "@/lib/db";
 import { categories } from "@/lib/db/schema";
 import { getRecentPosts } from "@/features/posts/queries";
 import type { PostListItem } from "@/features/posts/queries";
-import { ExploreFeed } from "@/features/posts/explore-feed";
+import {
+  ExploreFeed,
+  ExploreFeedFallback,
+} from "@/features/posts/explore-feed";
 import { PUBLIC_CATEGORY_NAV } from "@/features/posts/public-categories";
 import { SetupRequired } from "@/components/setup-required";
 import { PaperCurl } from "@/components/paper-curl";
@@ -24,7 +28,9 @@ export default function HomePage() {
           <HeroWordmark />
         </div>
 
-        <HomeShell />
+        <Suspense fallback={<ExploreFeedFallback />}>
+          <HomeShell />
+        </Suspense>
       </div>
     </div>
   );

@@ -47,6 +47,7 @@ type FeedPageCache = { posts: PostListItem[]; hasMore: boolean };
 
 /** Survives ExploreFeed remounts within the same JS realm (soft navigations). */
 const feedPageCache = new Map<string, FeedPageCache>();
+const feedInflight = new Map<string, Promise<FeedPageCache>>();
 const DEFAULT_FILTER_KEY = "all|recent";
 const EMPTY_POSTS: PostListItem[] = [];
 
@@ -56,10 +57,66 @@ function asPostList(value: unknown): PostListItem[] {
   return Array.isArray(value) ? (value as PostListItem[]) : EMPTY_POSTS;
 }
 
+function filterCacheKey(category: string, sort: SortKey): string {
+  return `${category}|${sort}`;
+}
+
 /** Ignore stale empty cache entries — `[]` is truthy but must not beat server props. */
 function cachedPostsForKey(key: string): PostListItem[] | null {
   const posts = asPostList(feedPageCache.get(key)?.posts);
   return posts.length > 0 ? posts : null;
+}
+
+function warmThumbnails(posts: PostListItem[]) {
+  if (typeof window === "undefined") return;
+  for (const post of posts.slice(0, 9)) {
+    const url = post.thumbnail?.url;
+    if (!url) continue;
+    const img = new window.Image();
+    img.decoding = "async";
+    img.src = url;
+  }
+}
+
+/** Fetch (or reuse) page 0 for a filter. Populates the module cache. */
+function prefetchFeedPage(
+  category: string,
+  sort: SortKey,
+): Promise<FeedPageCache> {
+  const key = filterCacheKey(category, sort);
+  const cached = feedPageCache.get(key);
+  if (cached && asPostList(cached.posts).length > 0) {
+    return Promise.resolve(cached);
+  }
+  const pending = feedInflight.get(key);
+  if (pending) return pending;
+
+  const request = loadFeedPageAction({ offset: 0, category, sort })
+    .then((raw) => {
+      const page = asPostList(raw);
+      const prev = feedPageCache.get(key);
+      const prevPosts = asPostList(prev?.posts);
+      // Keep a longer cached list if page-0 still matches its head.
+      const headMatches =
+        page.length > 0 &&
+        prevPosts.length >= page.length &&
+        page.every((p, i) => p.id === prevPosts[i]?.id);
+      const next: FeedPageCache = headMatches
+        ? {
+            posts: prevPosts,
+            hasMore: prev?.hasMore ?? page.length >= FEED_PAGE_SIZE,
+          }
+        : { posts: page, hasMore: page.length >= FEED_PAGE_SIZE };
+      feedPageCache.set(key, next);
+      warmThumbnails(next.posts);
+      return next;
+    })
+    .finally(() => {
+      feedInflight.delete(key);
+    });
+
+  feedInflight.set(key, request);
+  return request;
 }
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -97,8 +154,8 @@ const MOBILE_ROW_SPLIT =
  * so they never animate on load.
  *
  * Initial posts arrive already resolved from the server (no client Suspense /
- * use(promise)). Filter changes keep the current grid painted until the next
- * page arrives — never swap to skeletons when we already have posts.
+ * use(promise)). Category pages are prefetched on idle + hover so first clicks
+ * hit cache. Uncached switches swap to a skeleton instead of keeping the old grid.
  */
 export function ExploreFeed({
   categories,
@@ -115,6 +172,59 @@ export function ExploreFeed({
   // no navigation) with colour-matched results.
   const [colors, setColors] = useState<string[]>([]);
   const safeInitialPosts = asPostList(initialPosts);
+
+  const prefetchCategory = useCallback(
+    (slug: string) => {
+      void prefetchFeedPage(slug, sort);
+    },
+    [sort],
+  );
+
+  // Warm every category for the current sort after idle so first clicks are cache hits.
+  useEffect(() => {
+    const slugs = ["all", ...categories.map((c) => c.slug)];
+    let cancelled = false;
+    let cursor = 0;
+    let timeout = 0;
+
+    const tick = () => {
+      if (cancelled) return;
+      const batch: string[] = [];
+      while (cursor < slugs.length && batch.length < 3) {
+        const slug = slugs[cursor++]!;
+        if (cachedPostsForKey(filterCacheKey(slug, sort))) {
+          continue;
+        }
+        batch.push(slug);
+      }
+      if (batch.length === 0) return;
+      void Promise.all(batch.map((slug) => prefetchFeedPage(slug, sort))).then(
+        () => {
+          if (!cancelled) timeout = window.setTimeout(tick, 50);
+        },
+      );
+    };
+
+    const start = () => {
+      if (cancelled) return;
+      timeout = window.setTimeout(tick, 600);
+    };
+
+    let idleId = 0;
+    if (typeof requestIdleCallback === "function") {
+      idleId = requestIdleCallback(start, { timeout: 2500 });
+    } else {
+      timeout = window.setTimeout(start, 1200);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      if (idleId && typeof cancelIdleCallback === "function") {
+        cancelIdleCallback(idleId);
+      }
+    };
+  }, [categories, sort, active]);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -133,7 +243,11 @@ export function ExploreFeed({
               >
                 <ColorSearch selected={colors} onSelected={setColors} />
                 <div className="flex shrink-0 items-center gap-2">
-                  <SortMenu value={sort} onChange={setSort} />
+                  <SortMenu
+                  value={sort}
+                  onChange={setSort}
+                  onPrefetch={(next) => void prefetchFeedPage(active, next)}
+                />
                   <GitHubStarLink />
                 </div>
               </div>
@@ -141,6 +255,7 @@ export function ExploreFeed({
                 categories={categories}
                 active={active}
                 onSelect={setActive}
+                onPrefetch={prefetchCategory}
               />
             </div>
 
@@ -156,13 +271,18 @@ export function ExploreFeed({
                 categories={categories}
                 active={active}
                 onSelect={setActive}
+                onPrefetch={prefetchCategory}
                 className="min-w-0 flex-1"
               />
 
               <Divider />
 
               <div className="flex shrink-0 items-center gap-2 py-3.5">
-                <SortMenu value={sort} onChange={setSort} />
+                <SortMenu
+                  value={sort}
+                  onChange={setSort}
+                  onPrefetch={(next) => void prefetchFeedPage(active, next)}
+                />
                 <GitHubStarLink />
               </div>
             </div>
@@ -313,41 +433,25 @@ function FeedBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorKey]);
 
-  // Refetch page 0 when category/sort change. Never clear the grid — show cached
-  // page instantly when available, otherwise keep stale posts until the fetch
-  // completes. Colour-search clear must not refetch.
+  // Swap the grid when category/sort change. Cached pages paint instantly;
+  // uncached first visits show a skeleton instead of the previous category.
   useEffect(() => {
-    const filterKey = `${active}|${sort}`;
-    if (loadedFilterKey.current === filterKey) return;
+    const key = filterCacheKey(active, sort);
+    if (loadedFilterKey.current === key) return;
 
-    const cached = feedPageCache.get(filterKey);
-    if (cached?.posts) {
-      const cachedPosts = asPostList(cached.posts);
-      loadedFilterKey.current = filterKey;
+    const cachedPosts = cachedPostsForKey(key);
+    if (cachedPosts) {
+      loadedFilterKey.current = key;
       setFeedPosts(cachedPosts);
-      setHasMore(Boolean(cached.hasMore));
+      setHasMore(Boolean(feedPageCache.get(key)?.hasMore));
       setFeedBootstrapping(false);
-      // Background revalidate — keep cached posts visible (no dim / skeleton).
-      // If page-0 still matches the head of a longer cached list, keep the tail.
       const gen = ++loadGen.current;
       let cancelled = false;
-      loadFeedPageAction({ offset: 0, category: active, sort }).then(
-        (raw) => {
+      prefetchFeedPage(active, sort).then(
+        (next) => {
           if (cancelled || loadGen.current !== gen) return;
-          const page = asPostList(raw);
-          const prev = asPostList(feedPageCache.get(filterKey)?.posts);
-          const headMatches =
-            page.length > 0 &&
-            prev.length >= page.length &&
-            page.every((p, i) => p.id === prev[i]?.id);
-          const posts = headMatches ? prev : page;
-          const more = headMatches
-            ? (feedPageCache.get(filterKey)?.hasMore ??
-              page.length >= FEED_PAGE_SIZE)
-            : page.length >= FEED_PAGE_SIZE;
-          feedPageCache.set(filterKey, { posts, hasMore: more });
-          setFeedPosts(posts);
-          setHasMore(more);
+          setFeedPosts(next.posts);
+          setHasMore(next.hasMore);
         },
         () => {},
       );
@@ -358,18 +462,13 @@ function FeedBody({
 
     const gen = ++loadGen.current;
     let cancelled = false;
-    // Stale-while-revalidate: keep current posts; only dim, never clear.
+    setFeedPosts([]);
+    setHasMore(false);
     setFeedBootstrapping(true);
-    loadFeedPageAction({ offset: 0, category: active, sort }).then(
-      (raw) => {
+    prefetchFeedPage(active, sort).then(
+      (next) => {
         if (cancelled || loadGen.current !== gen) return;
-        const page = asPostList(raw);
-        const next = {
-          posts: page,
-          hasMore: page.length >= FEED_PAGE_SIZE,
-        };
-        feedPageCache.set(filterKey, next);
-        loadedFilterKey.current = filterKey;
+        loadedFilterKey.current = key;
         setFeedPosts(next.posts);
         setHasMore(next.hasMore);
         setFeedBootstrapping(false);
@@ -478,9 +577,8 @@ function FeedBody({
     videoTimeRef.current[id] = t;
   }, []);
 
-  // While a colour search is in flight the existing feed stays on screen (dimmed)
-  // instead of collapsing to skeletons; a category switch likewise keeps the old
-  // posts up until the new page lands.
+  // Colour search keeps the existing feed on screen (dimmed) while results load.
+  // Category switches with no cache swap to a skeleton via empty feedPosts.
   const visible = useMemo(() => {
     if (colorActive) return asPostList(colorPosts ?? feedPosts);
     return asPostList(feedPosts);
@@ -637,6 +735,22 @@ function FeedBody({
   );
 }
 
+/** First-paint shell while the homepage feed query is still streaming. */
+export function ExploreFeedFallback() {
+  return (
+    <div className="flex w-full flex-1 flex-col bg-[#f7f7f7]">
+      <div className="relative z-30 w-full shrink-0">
+        <div className={FIGMA_TOOLBAR_SHEET}>
+          <div className="h-[58px] sm:h-[62px]" />
+        </div>
+      </div>
+      <div className="flex w-full items-start gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-2 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] sm:p-3.5">
+        <GridSkeletonColumns />
+      </div>
+    </div>
+  );
+}
+
 /** Loading placeholder — 1 col on mobile, 2 on sm, 3 on md+ (pure CSS). */
 function GridSkeletonColumns() {
   const heights = ["h-64", "h-52", "h-80", "h-60", "h-72", "h-56"] as const;
@@ -689,11 +803,13 @@ function PillRail({
   categories,
   active,
   onSelect,
+  onPrefetch,
   className,
 }: {
   categories: Category[];
   active: string;
   onSelect: (slug: string) => void;
+  onPrefetch?: (slug: string) => void;
   className?: string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -728,6 +844,7 @@ function PillRail({
           label="All"
           active={active === "all"}
           onClick={() => onSelect("all")}
+          onPrefetch={() => onPrefetch?.("all")}
         />
         {categories.map((c) => (
           <Pill
@@ -735,6 +852,7 @@ function PillRail({
             label={c.name}
             active={active === c.slug}
             onClick={() => onSelect(c.slug)}
+            onPrefetch={() => onPrefetch?.(c.slug)}
           />
         ))}
       </div>
@@ -761,15 +879,19 @@ function Pill({
   label,
   active,
   onClick,
+  onPrefetch,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
+  onPrefetch?: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      onPointerEnter={onPrefetch}
+      onFocus={onPrefetch}
       className={cn(
         "flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3.5 py-2 text-sm tracking-tight shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100 sm:px-3.5 sm:py-2.5",
         active
@@ -785,9 +907,11 @@ function Pill({
 function SortMenu({
   value,
   onChange,
+  onPrefetch,
 }: {
   value: SortKey;
   onChange: (v: SortKey) => void;
+  onPrefetch?: (v: SortKey) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -837,6 +961,8 @@ function SortMenu({
                 <button
                   key={k}
                   type="button"
+                  onPointerEnter={() => onPrefetch?.(k)}
+                  onFocus={() => onPrefetch?.(k)}
                   onClick={() => {
                     onChange(k);
                     setOpen(false);
@@ -989,6 +1115,7 @@ function StaticFeedCard({ post, index }: { post: PostListItem; index: number }) 
             sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 33vw"
             className="object-cover"
             priority={index < 4}
+            unoptimized
           />
         ) : null}
       </div>
@@ -1125,6 +1252,7 @@ function MasonryCard({
                 sizes="(max-width: 768px) 50vw, 33vw"
                 className="object-cover"
                 priority={index < 4 && mediaIdx === 0}
+                unoptimized
               />
             </motion.div>
           </AnimatePresence>
@@ -1177,6 +1305,7 @@ function MasonryCard({
             width={30}
             height={30}
             className="size-full object-cover"
+            unoptimized
           />
         </span>
       ) : null}

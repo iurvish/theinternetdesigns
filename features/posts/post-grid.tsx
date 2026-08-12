@@ -39,6 +39,7 @@ export function PostCard({ post }: { post: PostListItem }) {
             fill
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 33vw, 20vw"
             className="object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+            unoptimized
           />
         ) : null}
         <div className="pointer-events-none absolute inset-x-2 top-2 flex items-center justify-between gap-2">

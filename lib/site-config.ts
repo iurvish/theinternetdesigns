@@ -38,6 +38,14 @@ export const SITE_KEYWORDS = [
 export const HOME_TITLE =
   "The Internet Designs — UI Inspiration, Landing Pages & Design Gallery";
 
+/** Social preview — lives in /public/og-image.jpg */
+export const OG_IMAGE = {
+  url: "/og-image.jpg",
+  width: 2400,
+  height: 1260,
+  alt: SITE_NAME,
+} as const;
+
 export function buildSiteMetadata(siteUrl: string): Metadata {
   return {
     metadataBase: new URL(siteUrl),
@@ -50,6 +58,17 @@ export function buildSiteMetadata(siteUrl: string): Metadata {
     applicationName: SITE_NAME,
     authors: [{ name: SITE_NAME }],
     creator: SITE_NAME,
+    icons: {
+      icon: [
+        { url: "/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+        { url: "/favicon.svg", type: "image/svg+xml" },
+      ],
+      shortcut: "/favicon.ico",
+      apple: [
+        { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      ],
+    },
+    manifest: "/site.webmanifest",
     openGraph: {
       type: "website",
       locale: "en_US",
@@ -57,11 +76,13 @@ export function buildSiteMetadata(siteUrl: string): Metadata {
       siteName: SITE_NAME,
       title: HOME_TITLE,
       description: SITE_DESCRIPTION,
+      images: [OG_IMAGE],
     },
     twitter: {
       card: "summary_large_image",
       title: HOME_TITLE,
       description: SITE_DESCRIPTION,
+      images: [OG_IMAGE.url],
     },
     robots: {
       index: true,
@@ -82,9 +103,11 @@ export const homePageMetadata: Metadata = {
   openGraph: {
     title: HOME_TITLE,
     description: SITE_DESCRIPTION,
+    images: [OG_IMAGE],
   },
   twitter: {
     title: HOME_TITLE,
     description: SITE_DESCRIPTION,
+    images: [OG_IMAGE.url],
   },
 };

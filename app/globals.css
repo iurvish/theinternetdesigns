@@ -121,16 +121,19 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
-  button:not(:disabled), [role="button"]:not(:disabled) {
-    cursor: pointer;
-  }
   html {
     @apply font-sans;
     /* Site-wide Inter with a -1.5% tracking for a tighter, modern rhythm. */
     letter-spacing: -0.015em;
+    color-scheme: light;
+    background-color: #f7f7f7;
+  }
+  body {
+    @apply text-foreground;
+    background-color: #f7f7f7;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
   }
 }
 
