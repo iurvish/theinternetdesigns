@@ -10,6 +10,8 @@ import { VideoPlayer } from "@/components/video-player";
 import { PostPalette } from "@/features/posts/post-palette";
 import { CaptionText } from "@/features/posts/caption-text";
 import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
+import { buildPostSocialMetadata } from "@/lib/site-config";
+import { publicEnv } from "@/lib/env";
 
 export default async function PostPage({
   params,
@@ -120,8 +122,15 @@ export async function generateMetadata({
   const { id } = await params;
   const data = await getPostById(id);
   if (!data || !data.creator) return {};
-  return {
-    title: data.post.caption?.slice(0, 60) ?? `Post by @${data.creator.username}`,
-    description: data.post.caption ?? undefined,
-  };
+
+  const title =
+    data.post.caption?.slice(0, 60) ?? `Post by @${data.creator.username}`;
+
+  return buildPostSocialMetadata({
+    siteUrl: publicEnv.NEXT_PUBLIC_SITE_URL,
+    path: `/post/${id}`,
+    title,
+    description: data.post.caption,
+    media: data.media,
+  });
 }

@@ -38,15 +38,69 @@ export const SITE_KEYWORDS = [
 export const HOME_TITLE =
   "The Internet Designs — UI Inspiration, Landing Pages & Design Gallery";
 
-/** Social preview — lives in /public/og-image.jpg */
+/** Social preview — lives in /public/og-image.jpg (also served via app/opengraph-image.tsx). */
 export const OG_IMAGE = {
-  url: "/og-image.jpg",
+  path: "/og-image.jpg",
   width: 2400,
   height: 1260,
   alt: SITE_NAME,
+  type: "image/jpeg",
 } as const;
 
+/** Absolute HTTPS URL — X/Twitter require a fully-qualified image URL. */
+export function absoluteOgImageUrl(siteUrl: string) {
+  return new URL(OG_IMAGE.path, siteUrl).href;
+}
+
+export function buildDefaultSocialImage(siteUrl: string) {
+  const url = absoluteOgImageUrl(siteUrl);
+  return {
+    url,
+    secureUrl: url,
+    width: OG_IMAGE.width,
+    height: OG_IMAGE.height,
+    alt: OG_IMAGE.alt,
+    type: OG_IMAGE.type,
+  };
+}
+
+/** X/Twitter card images must be JPEG, PNG, GIF, or WebP — not AVIF. */
+export function isTwitterSafeImageUrl(url: string) {
+  return /\.(jpe?g|png|gif|webp)(\?|#|$)/i.test(url);
+}
+
+export function pickPostSocialImage(
+  media: {
+    mediumUrl: string | null;
+    thumbnailUrl: string | null;
+    posterUrl: string | null;
+    originalUrl: string;
+    width: number | null;
+    height: number | null;
+  }[],
+) {
+  for (const item of media) {
+    for (const candidate of [
+      item.mediumUrl,
+      item.thumbnailUrl,
+      item.posterUrl,
+      item.originalUrl,
+    ]) {
+      if (candidate && isTwitterSafeImageUrl(candidate)) {
+        return {
+          url: candidate,
+          width: item.width ?? undefined,
+          height: item.height ?? undefined,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 export function buildSiteMetadata(siteUrl: string): Metadata {
+  const socialImage = buildDefaultSocialImage(siteUrl);
+
   return {
     metadataBase: new URL(siteUrl),
     title: {
@@ -76,13 +130,13 @@ export function buildSiteMetadata(siteUrl: string): Metadata {
       siteName: SITE_NAME,
       title: HOME_TITLE,
       description: SITE_DESCRIPTION,
-      images: [OG_IMAGE],
+      images: [socialImage],
     },
     twitter: {
       card: "summary_large_image",
       title: HOME_TITLE,
       description: SITE_DESCRIPTION,
-      images: [OG_IMAGE.url],
+      images: [{ url: socialImage.url, alt: socialImage.alt }],
     },
     robots: {
       index: true,
@@ -95,19 +149,67 @@ export function buildSiteMetadata(siteUrl: string): Metadata {
   };
 }
 
+type PostSocialMetadataInput = {
+  siteUrl: string;
+  path: string;
+  title: string;
+  description?: string | null;
+  media: {
+    mediumUrl: string | null;
+    thumbnailUrl: string | null;
+    posterUrl: string | null;
+    originalUrl: string;
+    width: number | null;
+    height: number | null;
+  }[];
+};
+
+export function buildPostSocialMetadata({
+  siteUrl,
+  path,
+  title,
+  description,
+  media,
+}: PostSocialMetadataInput): Metadata {
+  const pageUrl = new URL(path, siteUrl).href;
+  const postImage = pickPostSocialImage(media);
+  const fallback = buildDefaultSocialImage(siteUrl);
+  const socialImage = postImage
+    ? {
+        url: postImage.url,
+        secureUrl: postImage.url,
+        width: postImage.width,
+        height: postImage.height,
+        alt: title,
+        type: "image/jpeg" as const,
+      }
+    : fallback;
+  const metaDescription = description?.trim() || SITE_DESCRIPTION;
+
+  return {
+    title,
+    description: metaDescription,
+    alternates: { canonical: pageUrl },
+    openGraph: {
+      type: "article",
+      url: pageUrl,
+      siteName: SITE_NAME,
+      title,
+      description: metaDescription,
+      images: [socialImage],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description: metaDescription,
+      images: [{ url: socialImage.url, alt: title }],
+    },
+  };
+}
+
 /** Extra homepage metadata layered on the root layout defaults. */
 export const homePageMetadata: Metadata = {
   title: HOME_TITLE,
   description: SITE_DESCRIPTION,
   keywords: SITE_KEYWORDS,
-  openGraph: {
-    title: HOME_TITLE,
-    description: SITE_DESCRIPTION,
-    images: [OG_IMAGE],
-  },
-  twitter: {
-    title: HOME_TITLE,
-    description: SITE_DESCRIPTION,
-    images: [OG_IMAGE.url],
-  },
 };
