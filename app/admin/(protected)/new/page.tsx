@@ -4,6 +4,9 @@ import { ensureStyles } from "@/lib/db/ensure-styles";
 import { NewPostForm } from "./new-post-form";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+/** Publish downloads + encodes media; Vercel defaults (10–15s) are far too low. */
+export const maxDuration = 300;
 
 export default async function NewPostPage() {
   const [cats, industryRows, styleRows] = await Promise.all([

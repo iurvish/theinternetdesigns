@@ -4,6 +4,8 @@ import { AdminSignOutButton } from "./sign-out-button";
 import { SITE_NAME } from "@/lib/site-config";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export default async function AdminProtectedLayout({
   children,
