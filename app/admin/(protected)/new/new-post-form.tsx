@@ -59,7 +59,21 @@ type DraftItem = {
   selected: boolean;
   aiStatus: AiStatus;
   aiError: string | null;
+  publishStatus: "idle" | "queued" | "publishing" | "failed";
+  publishError: string | null;
 };
+
+type PublishProgress = {
+  total: number;
+  published: number;
+  failed: number;
+  inFlight: number;
+  startedAt: number;
+  estimatedTotalMs: number;
+};
+
+/** Two Vercel invocations at once — each function has its own CPU. */
+const PUBLISH_CONCURRENCY = 2;
 
 const PLATFORMS: { id: Platform; label: string; ready: boolean }[] = [
   { id: "x", label: "X", ready: true },
@@ -84,7 +98,10 @@ export function NewPostForm({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [previewPending, startPreview] = useTransition();
-  const [publishPending, startPublish] = useTransition();
+  const [publishProgress, setPublishProgress] = useState<PublishProgress | null>(
+    null,
+  );
+  const [now, setNow] = useState(() => Date.now());
   const [aiClassifyPending, setAiClassifyPending] = useState(false);
   const [aiProgress, setAiProgress] = useState<{ done: number; total: number } | null>(
     null,
@@ -101,7 +118,9 @@ export function NewPostForm({
   }, [categories]);
 
   const active = drafts.find((d) => d.sourceId === activeId) ?? drafts[0] ?? null;
-  const isBulk = drafts.length > 1;
+  const publishPending = publishProgress !== null;
+  const isBulk =
+    drafts.length > 1 || (publishProgress !== null && publishProgress.total > 1);
   const activeMediaIndex = active
     ? Math.min(mediaIndex, Math.max(active.post.media.length - 1, 0))
     : 0;
@@ -110,6 +129,13 @@ export function NewPostForm({
     setMediaIndex(0);
     setAiTagError(null);
   }, [active?.sourceId]);
+
+  useEffect(() => {
+    if (!publishProgress) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [publishProgress]);
 
   function selectPlatform(next: Platform) {
     setPlatform(next);
@@ -431,43 +457,111 @@ export function NewPostForm({
 
   function onPublishOne() {
     if (!active) return;
-    startPublish(async () => {
-      const res = await publishDraft(active, sortBySourceDate);
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success("Published.");
-      const remaining = drafts.filter((d) => d.sourceId !== active.sourceId);
-      setDrafts(remaining);
-      setActiveId(remaining[0]?.sourceId ?? null);
-      router.refresh();
-    });
+    void runPublishQueue([active]);
   }
 
   function onPublishSelected() {
     const selected = drafts.filter((d) => d.selected);
     const queue = selected.length ? selected : drafts;
     if (queue.length === 0) return;
-    startPublish(async () => {
-      let ok = 0;
-      let fail = 0;
-      const publishedIds = new Set<string>();
-      for (const draft of queue) {
+    void runPublishQueue(queue);
+  }
+
+  async function runPublishQueue(queue: DraftItem[]) {
+    const ids = new Set(queue.map((d) => d.sourceId));
+    const estimatedTotalMs = queue.reduce(
+      (sum, d) => sum + estimateDraftMs(d),
+      0,
+    );
+    setPublishProgress({
+      total: queue.length,
+      published: 0,
+      failed: 0,
+      inFlight: 0,
+      startedAt: Date.now(),
+      estimatedTotalMs,
+    });
+    setDrafts((prev) =>
+      prev.map((d) =>
+        ids.has(d.sourceId)
+          ? { ...d, publishStatus: "queued", publishError: null }
+          : d,
+      ),
+    );
+
+    const publishedIds = new Set<string>();
+    const bulk = queue.length > 1;
+    let lastError = "";
+
+    try {
+      await mapPool(queue, bulk ? PUBLISH_CONCURRENCY : 1, async (draft) => {
+        setPublishProgress((p) =>
+          p ? { ...p, inFlight: p.inFlight + 1 } : p,
+        );
+        setDrafts((prev) =>
+          prev.map((d) =>
+            d.sourceId === draft.sourceId
+              ? { ...d, publishStatus: "publishing", publishError: null }
+              : d,
+          ),
+        );
+
         const res = await publishDraft(draft, sortBySourceDate);
         if (res.ok) {
-          ok++;
           publishedIds.add(draft.sourceId);
+          setPublishProgress((p) =>
+            p
+              ? {
+                  ...p,
+                  published: p.published + 1,
+                  inFlight: Math.max(0, p.inFlight - 1),
+                }
+              : p,
+          );
+          setDrafts((prev) =>
+            prev.filter((d) => d.sourceId !== draft.sourceId),
+          );
+          setActiveId((current) =>
+            current === draft.sourceId ? null : current,
+          );
         } else {
-          fail++;
+          lastError = res.error;
+          setPublishProgress((p) =>
+            p
+              ? {
+                  ...p,
+                  failed: p.failed + 1,
+                  inFlight: Math.max(0, p.inFlight - 1),
+                }
+              : p,
+          );
+          setDrafts((prev) =>
+            prev.map((d) =>
+              d.sourceId === draft.sourceId
+                ? {
+                    ...d,
+                    publishStatus: "failed",
+                    publishError: res.error,
+                  }
+                : d,
+            ),
+          );
         }
+      });
+
+      const ok = publishedIds.size;
+      const fail = queue.length - ok;
+      if (queue.length === 1 && fail === 1) {
+        toast.error(lastError || "Publish failed.");
+      } else if (fail === 0) {
+        toast.success(`Published ${ok} post${ok === 1 ? "" : "s"}.`);
+      } else {
+        toast.message(`Published ${ok}, failed ${fail}.`);
       }
-      setDrafts((prev) => prev.filter((d) => !publishedIds.has(d.sourceId)));
-      setActiveId(null);
+    } finally {
       router.refresh();
-      if (fail === 0) toast.success(`Published ${ok} post${ok === 1 ? "" : "s"}.`);
-      else toast.message(`Published ${ok}, failed ${fail}.`);
-    });
+      window.setTimeout(() => setPublishProgress(null), 1200);
+    }
   }
 
   const pasteReady = platform === "x" || platform === "pinterest";
@@ -587,6 +681,10 @@ export function NewPostForm({
         ) : null}
       </div>
 
+      {publishProgress ? (
+        <PublishProgressCard progress={publishProgress} now={now} />
+      ) : null}
+
       {drafts.length > 0 && active ? (
         <div
           className={cn(
@@ -617,6 +715,7 @@ export function NewPostForm({
                     <input
                       type="checkbox"
                       checked={d.selected}
+                      disabled={publishPending}
                       onChange={(e) => {
                         e.stopPropagation();
                         setDrafts((prev) =>
@@ -631,7 +730,40 @@ export function NewPostForm({
                       className="shrink-0"
                     />
                     <span className="truncate">@{d.post.creator.username}</span>
-                    {d.aiStatus === "pending" ? (
+                    {d.publishStatus === "publishing" ? (
+                      <span
+                        className={cn(
+                          "ml-auto shrink-0 text-[10px]",
+                          d.sourceId === active.sourceId
+                            ? "text-white/70"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        Publishing…
+                      </span>
+                    ) : d.publishStatus === "queued" ? (
+                      <span
+                        className={cn(
+                          "ml-auto shrink-0 text-[10px]",
+                          d.sourceId === active.sourceId
+                            ? "text-white/70"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        Queued
+                      </span>
+                    ) : d.publishStatus === "failed" ? (
+                      <span
+                        className={cn(
+                          "ml-auto shrink-0 text-[10px]",
+                          d.sourceId === active.sourceId
+                            ? "text-red-200"
+                            : "text-destructive",
+                        )}
+                      >
+                        Failed
+                      </span>
+                    ) : d.aiStatus === "pending" ? (
                       <span
                         className={cn(
                           "ml-auto shrink-0 text-[10px]",
@@ -700,8 +832,8 @@ export function NewPostForm({
                   onClick={onPublishSelected}
                   disabled={publishPending || aiClassifyPending}
                 >
-                  {publishPending
-                    ? "Publishing…"
+                  {publishProgress
+                    ? `Publishing ${publishProgress.published + publishProgress.failed}/${publishProgress.total}…`
                     : `Publish ${
                         drafts.some((d) => d.selected)
                           ? drafts.filter((d) => d.selected).length
@@ -945,6 +1077,15 @@ export function NewPostForm({
                     </p>
                   ) : null}
 
+                  {active.publishError ? (
+                    <p
+                      role="alert"
+                      className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+                    >
+                      {active.publishError}
+                    </p>
+                  ) : null}
+
                   <div className="sticky bottom-0 z-10 mt-1 flex justify-end gap-2 border-t border-border/60 bg-card/95 py-4 backdrop-blur-sm supports-backdrop-filter:bg-card/80">
                     <Button
                       variant="outline"
@@ -959,7 +1100,9 @@ export function NewPostForm({
                       Clear
                     </Button>
                     <Button onClick={onPublishOne} disabled={publishPending || aiClassifyPending}>
-                      {publishPending ? "Publishing…" : "Publish this"}
+                      {publishProgress && publishProgress.total === 1
+                        ? "Publishing…"
+                        : "Publish this"}
                     </Button>
                   </div>
                 </div>
@@ -1011,6 +1154,8 @@ function toDraft(
     selected: true,
     aiStatus: "idle",
     aiError: null,
+    publishStatus: "idle",
+    publishError: null,
   };
 }
 
@@ -1236,4 +1381,115 @@ async function publishDraft(
     return publishPinPost({ pinId: draft.sourceId, ...shared });
   }
   return publishPost({ tweetId: draft.sourceId, ...shared });
+}
+
+function estimateDraftMs(draft: DraftItem): number {
+  let ms = 3000;
+  for (const m of draft.post.media) {
+    ms += m.kind === "image" ? 5000 : 14000;
+  }
+  return ms;
+}
+
+async function mapPool<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+) {
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      await fn(items[index]!);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+}
+
+function formatDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  if (totalSec < 60) return `${totalSec}s`;
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = totalSec % 60;
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+}
+
+function PublishProgressCard({
+  progress,
+  now,
+}: {
+  progress: PublishProgress;
+  now: number;
+}) {
+  const finished = progress.published + progress.failed;
+  const pending = Math.max(0, progress.total - finished);
+  const elapsedMs = Math.max(0, now - progress.startedAt);
+  const pct =
+    progress.total === 0 ? 0 : Math.round((finished / progress.total) * 100);
+  const etaMs =
+    finished > 0
+      ? (elapsedMs / finished) * pending
+      : Math.max(0, progress.estimatedTotalMs - elapsedMs);
+  const remainingLabel =
+    pending === 0
+      ? "Finishing up…"
+      : finished === 0
+        ? `About ${formatDuration(etaMs)} remaining`
+        : `~${formatDuration(etaMs)} left`;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Publishing</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-wrap items-baseline justify-between gap-2 text-sm"
+        >
+          <p className="font-medium tabular-nums tracking-tight">
+            {finished} of {progress.total} done
+          </p>
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Elapsed {formatDuration(elapsedMs)}
+            <span className="mx-1.5 text-border">·</span>
+            {remainingLabel}
+          </p>
+        </div>
+        <div
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={progress.total}
+          aria-valuenow={finished}
+          aria-label="Publish progress"
+          className="h-1.5 overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            className="h-full rounded-full bg-[#1f2123] transition-[width] duration-500 ease-out motion-reduce:transition-none"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground tabular-nums">
+          Published {progress.published}
+          <span className="mx-1.5 text-border">·</span>
+          Pending {pending}
+          {progress.inFlight > 0 ? (
+            <>
+              <span className="mx-1.5 text-border">·</span>
+              Uploading {progress.inFlight}
+            </>
+          ) : null}
+          {progress.failed > 0 ? (
+            <>
+              <span className="mx-1.5 text-border">·</span>
+              <span className="text-destructive">Failed {progress.failed}</span>
+            </>
+          ) : null}
+        </p>
+      </CardContent>
+    </Card>
+  );
 }
