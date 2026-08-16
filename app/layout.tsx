@@ -16,12 +16,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default:
-      "The Internet Designs — UI Inspiration, Landing Pages & Design Gallery",
+    default: "The Internet Designs | UI Inspiration from X & Pinterest",
     template: "%s · The Internet Designs",
   },
   description:
-    "Browse curated UI design inspiration: landing pages, interfaces, micro-interactions, product design, typography, 3D, brand design, logos, and illustration. Discover the best design work shared on X and Pinterest.",
+    "Discover curated UI design inspiration from X and Pinterest. Browse landing pages, interfaces, motion, product design, branding, logos, and illustration.",
   authors: [{ name: "The Internet Designs" }],
   creator: "The Internet Designs",
   metadataBase: new URL("https://www.theinternetdesigns.com"),
@@ -38,10 +37,9 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: "https://www.theinternetdesigns.com",
-    title:
-      "The Internet Designs — UI Inspiration, Landing Pages & Design Gallery",
+    title: "The Internet Designs | UI Inspiration from X & Pinterest",
     description:
-      "Browse curated UI design inspiration: landing pages, interfaces, micro-interactions, product design, typography, 3D, brand design, logos, and illustration. Discover the best design work shared on X and Pinterest.",
+      "Curated UI design inspiration from X and Pinterest. Landing pages, interfaces, motion, branding, and product design.",
     siteName: "The Internet Designs",
     images: [
       {
@@ -54,10 +52,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title:
-      "The Internet Designs — UI Inspiration, Landing Pages & Design Gallery",
+    title: "The Internet Designs | UI Inspiration from X & Pinterest",
     description:
-      "Browse curated UI design inspiration: landing pages, interfaces, micro-interactions, product design, typography, 3D, brand design, logos, and illustration. Discover the best design work shared on X and Pinterest.",
+      "Curated UI design inspiration from X and Pinterest. Landing pages, interfaces, motion, branding, and product design.",
     images: ["/og-image.jpg"],
     creator: "@0xUrvish",
   },
