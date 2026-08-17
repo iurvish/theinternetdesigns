@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
  */
 
 export const GLASS_DROP_SHADOW =
-  "0px 12.731px 8.041px -3.35px rgba(0,0,0,0.01), 0px 4.02px 8.041px -3.35px rgba(0,0,0,0.02), 0px 2.01px 2.01px -1.005px rgba(0,0,0,0.01), 0px 1.34px 1.34px -0.67px rgba(0,0,0,0.01), 0px 0.335px 0.335px 0px rgba(0,0,0,0.02), 0px 0px 0px 0.503px rgba(0,0,0,0.06), 0px 8px 24px -8px rgba(0,0,0,0.35)";
+  "0px 12.731px 8.041px -3.35px rgba(0,0,0,0.01), 0px 4.02px 8.041px -3.35px rgba(0,0,0,0.02), 0px 2.01px 2.01px -1.005px rgba(0,0,0,0.01), 0px 1.34px 1.34px -0.67px rgba(0,0,0,0.01)";
 
 const mapCache = new Map<string, string>();
 
@@ -272,12 +272,12 @@ export function GlassLayers({
           borderRadius: radius,
           ...(map
             ? {
-                backdropFilter: `url(#${fid}) blur(14px) saturate(1.6) brightness(1.05)`,
+                backdropFilter: `url(#${fid}) blur(2px) saturate(1.45)`,
               }
             : {
-                backdropFilter: "blur(18px) saturate(1.7) brightness(1.05)",
+                backdropFilter: "blur(12px) saturate(1.6) brightness(1.05)",
                 WebkitBackdropFilter:
-                  "blur(18px) saturate(1.7) brightness(1.05)",
+                  "blur(12px) saturate(1.6) brightness(1.05)",
               }),
         }}
       />
@@ -289,13 +289,15 @@ export function GlassLayers({
         style={{ borderRadius: radius, background: tint }}
       />
 
-      {/* Specular: a single top catch, not a ring around the whole chip. */}
+      {/* Hairline rim + a thin top catch. No blurred inset — that pooled
+          white in the corners and killed the lens. */}
       <span
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
           borderRadius: radius,
-          boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.22)",
+          boxShadow:
+            "inset 0 1px 0 0 rgba(255,255,255,0.38), inset 0 0 0 0.5px rgba(255,255,255,0.22)",
         }}
       />
     </>
@@ -303,7 +305,7 @@ export function GlassLayers({
 }
 
 const DEFAULT_TINT =
-  "linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 45%, rgba(0,0,0,0.10) 100%), rgba(20,20,22,0.34)";
+  "linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.05) 100%), rgba(20,20,22,0.28)";
 
 type GlassGeometry = {
   width: number;

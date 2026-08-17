@@ -206,29 +206,17 @@ function SeekSlider({
       <span
         aria-hidden
         className={cn(
-          "absolute inset-x-0 bottom-px rounded-full bg-white/30 transition-[height] duration-150 ease-out",
+          "absolute inset-x-0 bottom-0 rounded-full bg-white/30 transition-[height] duration-150 ease-out",
           dragging ? "h-[4px]" : "h-[3px] group-hover/seek:h-[4px]",
         )}
       />
       <span
         aria-hidden
         className={cn(
-          "absolute bottom-px left-0 rounded-full bg-white transition-[height] duration-150 ease-out",
+          "absolute bottom-0 left-0 rounded-full bg-white transition-[height] duration-150 ease-out",
           dragging ? "h-[4px]" : "h-[3px] group-hover/seek:h-[4px]",
         )}
         style={{ width: `${pct}%` }}
-      />
-      {/* Thumb: the affordance that says "this is draggable". */}
-      <span
-        aria-hidden
-        className={cn(
-          "absolute bottom-0 size-[9px] -translate-x-1/2 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.45)]",
-          "transition-[opacity,transform] duration-150 ease-out",
-          dragging
-            ? "scale-100 opacity-100"
-            : "scale-50 opacity-0 group-hover/seek:scale-100 group-hover/seek:opacity-100 group-focus-visible/seek:scale-100 group-focus-visible/seek:opacity-100",
-        )}
-        style={{ left: `${pct}%` }}
       />
     </div>
   );
@@ -333,12 +321,7 @@ export function OverlayPlayPill({
                   className="absolute inset-0 grid place-items-center text-white outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/80"
                   style={{ borderRadius: PILL.r }}
                 >
-                  {/* Play's mass sits left of its box — pull it 2px left so
-                      the triangle reads centered, without changing the pill. */}
-                  <span
-                    className="flex w-7 justify-center"
-                    style={!playing ? { transform: "translateX(-2px)" } : undefined}
-                  >
+                  <span className="flex pl-px">
                     <MorphIcon
                       icon={playing ? Pause : Play}
                       size={28}
@@ -350,7 +333,7 @@ export function OverlayPlayPill({
                     />
                   </span>
                 </button>
-                <div className="absolute inset-x-0 -bottom-px">
+                <div className="absolute inset-x-0 -bottom-[0.5px]">
                   <SeekSlider
                     current={current}
                     duration={duration}
