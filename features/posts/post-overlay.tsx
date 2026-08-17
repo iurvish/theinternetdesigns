@@ -8,6 +8,7 @@ import { ChevronDown, ExternalLink } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { OverlayMediaNav, overlayNavLabels } from "./media-nav-pill";
+import { OverlayMediaActions, OverlayPlayPill } from "./overlay-media-chrome";
 import { CaptionText } from "./caption-text";
 import { ColorSwatches } from "./color-swatches";
 import {
@@ -126,7 +127,14 @@ export function PostOverlay({
   const media: MediaItem[] = post?.images?.length
     ? post.images
     : post?.thumbnail
-      ? [{ url: post.thumbnail.url, posterUrl: null, kind: "image", width: post.thumbnail.width, height: post.thumbnail.height }]
+      ? [{
+          id: null,
+          url: post.thumbnail.url,
+          posterUrl: null,
+          kind: "image",
+          width: post.thumbnail.width,
+          height: post.thumbnail.height,
+        }]
       : [];
   const mediaCount = media.length;
 
@@ -270,6 +278,7 @@ export function PostOverlay({
         requestClose();
         return;
       }
+      if (e.defaultPrevented) return;
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
         e.preventDefault(); // don't let arrows scroll the page / panel
       }
@@ -399,12 +408,14 @@ export function PostOverlay({
                     }}
                     transition={fastNav ? { duration: 0 } : { x: SLIDE, scale: SLIDE, opacity: FADE }}
                   >
-                    <div className="relative size-full overflow-hidden rounded-[12px]" style={{ boxShadow: FRAME_SHADOW }}>
+                    <div className="group/stage relative size-full overflow-hidden rounded-[12px]" style={{ boxShadow: FRAME_SHADOW }}>
                       <StageImage
                         src={m.url}
                         poster={m.posterUrl}
                         kind={m.kind}
+                        mediaId={m.id}
                         active={isActive && phase !== "in"}
+                        interactive={isActive && phase !== "in"}
                         // Resume from — and keep writing back — the grid card's
                         // position so open/close carries the clip over seamlessly.
                         startTime={isActive ? getVideoTime?.(post.id) : undefined}
@@ -459,6 +470,7 @@ export function PostOverlay({
                 src={media[mediaIndex]?.url}
                 poster={media[mediaIndex]?.posterUrl}
                 kind={media[mediaIndex]?.kind}
+                mediaId={media[mediaIndex]?.id}
               />
             </motion.div>
           </motion.div>
@@ -514,16 +526,19 @@ export function PostOverlay({
  * Progressive media for the lightbox. For images it paints the (already grid-
  * cached) thumbnail instantly, then fades the full-quality render in on top the
  * moment it loads — so opening never shows a blank frame while the large image
- * streams in. For video/gif media it renders a muted, looping, controls-free
- * `<video>` that autoplays while it's the active (centre) slide and pauses
- * otherwise, over its poster so the still frame shows until playback starts.
+ * streams in. For video/gif media it renders a `<video>` that autoplays (muted)
+ * while it's the active (centre) slide; neighbours rest on their poster.
+ *
+ * The active slide also carries copy / mute / play-pause chrome.
  */
 function StageImage({
   src,
   poster,
   alt = "",
   kind = "image",
+  mediaId,
   active = false,
+  interactive = false,
   startTime,
   onTime,
 }: {
@@ -531,15 +546,27 @@ function StageImage({
   poster?: string | null;
   alt?: string;
   kind?: MediaItem["kind"];
+  mediaId?: string | null;
   active?: boolean;
+  interactive?: boolean;
   /** Seek here the moment the video starts, so it resumes rather than restarts. */
   startTime?: number;
   onTime?: (t: number) => void;
 }) {
   const isVideo = kind === "video" || kind === "gif";
+  const canMute = kind === "video";
   const videoRef = useRef<HTMLVideoElement>(null);
   const [loaded, setLoaded] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [userPaused, setUserPaused] = useState(false);
+  const [linger, setLinger] = useState(false);
+  const lingerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [muted, setMuted] = useState(true);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
   const ref = useRef<HTMLImageElement>(null);
+  // Scrubbing pauses playback so the frame tracks the pointer, then restores it.
+  const resumeAfterScrub = useRef(false);
   // Latest handoff position, read (not depended on) when playback starts so a
   // mid-play write never re-seeks the video.
   const startRef = useRef(startTime);
@@ -571,6 +598,119 @@ function StageImage({
     }
   }, [isVideo, active, src]);
 
+  useEffect(() => {
+    setUserPaused(false);
+    setLinger(false);
+    if (lingerTimer.current) clearTimeout(lingerTimer.current);
+  }, [src]);
+
+  useEffect(
+    () => () => {
+      if (lingerTimer.current) clearTimeout(lingerTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) v.muted = muted;
+  }, [muted]);
+
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) {
+      setUserPaused(false);
+      setLinger(true);
+      if (lingerTimer.current) clearTimeout(lingerTimer.current);
+      lingerTimer.current = setTimeout(() => setLinger(false), 2500);
+      void v.play().catch(() => {});
+    } else {
+      setLinger(false);
+      if (lingerTimer.current) clearTimeout(lingerTimer.current);
+      setUserPaused(true);
+      v.pause();
+    }
+  };
+
+  const toggleMute = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = !v.muted;
+    setMuted(v.muted);
+  };
+
+  const seek = (t: number) => {
+    const v = videoRef.current;
+    if (!v || !Number.isFinite(t)) return;
+    try {
+      v.currentTime = t;
+      setCurrent(t);
+    } catch {
+      /* not seekable yet */
+    }
+  };
+
+  useEffect(() => {
+    if (!interactive || !active || !isVideo) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        const v = videoRef.current;
+        if (!v) return;
+        if (v.paused) {
+          setUserPaused(false);
+          setLinger(true);
+          if (lingerTimer.current) clearTimeout(lingerTimer.current);
+          lingerTimer.current = setTimeout(() => setLinger(false), 2500);
+          void v.play().catch(() => {});
+        } else {
+          setLinger(false);
+          if (lingerTimer.current) clearTimeout(lingerTimer.current);
+          setUserPaused(true);
+          v.pause();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [interactive, active, isVideo]);
+
+  const chrome =
+    interactive && mediaId ? (
+      <>
+        <OverlayMediaActions
+          media={{ mediaId, kind: kind ?? "image" }}
+          showMute={canMute}
+          muted={muted}
+          onToggleMute={toggleMute}
+          getVideo={() => videoRef.current}
+        />
+        {isVideo ? (
+          <OverlayPlayPill
+            playing={playing}
+            visible={userPaused || linger}
+            current={current}
+            duration={duration}
+            onTogglePlay={togglePlay}
+            onSeek={seek}
+            onScrubStart={() => {
+              const v = videoRef.current;
+              if (v && !v.paused) {
+                resumeAfterScrub.current = true;
+                v.pause();
+              }
+            }}
+            onScrubEnd={() => {
+              if (!resumeAfterScrub.current) return;
+              resumeAfterScrub.current = false;
+              void videoRef.current?.play().catch(() => {});
+            }}
+          />
+        ) : null}
+      </>
+    ) : null;
+
   if (isVideo) {
     return (
       <>
@@ -588,14 +728,29 @@ function StageImage({
           ref={videoRef}
           src={src}
           poster={poster ?? undefined}
-          muted
+          muted={muted}
           loop
           playsInline
           preload="metadata"
           aria-label={alt || undefined}
-          onTimeUpdate={onTime ? (e) => onTime(e.currentTarget.currentTime) : undefined}
+          onClick={
+            interactive
+              ? (e) => {
+                  e.stopPropagation();
+                  togglePlay();
+                }
+              : undefined
+          }
+          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+          onTimeUpdate={(e) => {
+            setCurrent(e.currentTarget.currentTime);
+            onTime?.(e.currentTarget.currentTime);
+          }}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
           className="absolute inset-0 size-full select-none object-cover"
         />
+        {chrome}
       </>
     );
   }
@@ -622,6 +777,7 @@ function StageImage({
         style={{ opacity: loaded ? 1 : 0 }}
         className="absolute inset-0 size-full select-none object-cover transition-opacity duration-300 ease-out"
       />
+      {chrome}
     </>
   );
 }

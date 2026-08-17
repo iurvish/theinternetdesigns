@@ -4,17 +4,10 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { GLASS_DROP_SHADOW, GlassLayers } from "./glass";
 
 const NAV_SIZE = 30;
 const NAV_EXPANDED_W = 82;
-
-/** Paper node CB-0 — frosted media nav (feed cards) */
-const NAV_PILL_SURFACE =
-  "flex h-[30px] items-center justify-center overflow-clip bg-[#C4C4C5A6] backdrop-blur-[8px] [background-image:linear-gradient(180deg,rgba(255,255,255,0.01)_0%,transparent_100%)] shadow-[inset_0_2px_8px_rgba(228,228,228,0.25),inset_0_0_53px_1px_rgba(148,148,148,0.25),0_0_0_0.3px_rgba(0,0,0,0.06),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_rgba(0,0,0,0.04)]";
-
-/** Paper node CL-0 — open / external affordance */
-export const NAV_OPEN_AFFORDANCE_CLASS =
-  "bg-[#C4C4C5A6] backdrop-blur-[8px] [background-image:linear-gradient(180deg,rgba(255,255,255,0.04)_0%,transparent_100%)] shadow-[inset_0_2px_8px_rgba(228,228,232,0.25),inset_0_0_53px_1px_rgba(148,148,148,0.25),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_rgba(0,0,0,0.04)]";
 
 const NAV_SPRING = { type: "spring", duration: 0.34, bounce: 0.22 } as const;
 
@@ -37,7 +30,7 @@ function SolidShine() {
 }
 
 function BoundaryDot() {
-  return <span className="size-2 rounded-full bg-white/25" aria-hidden />;
+  return <span className="size-2 rounded-full bg-white" aria-hidden />;
 }
 
 function NavTip({ text, show }: { text: string; show: boolean }) {
@@ -91,9 +84,9 @@ function NavArrow({
       animate={{ width: show ? 24 : 0, opacity: show ? 1 : 0 }}
       transition={NAV_SPRING}
       className={cn(
-        "flex h-[24px] shrink-0 items-center justify-center overflow-clip rounded-[18px] p-0.5",
+        "relative z-10 flex h-[24px] shrink-0 items-center justify-center overflow-clip rounded-[18px] p-0.5",
         !atBoundary &&
-          "transition-[background-color,box-shadow] duration-150 hover:bg-[#B7B7B8] hover:shadow-[inset_0_2px_8px_rgba(228,228,228,0.25),inset_0_0_53px_1px_rgba(200,200,200,0.25)]",
+          "transition-[background-color] duration-150 hover:bg-white/15",
       )}
     >
       {atBoundary ? (
@@ -145,12 +138,18 @@ export function FeedMediaNav({
         x: shake ? [0, -5, 5, -4, 4, -2, 0] : 0,
       }}
       transition={shake ? SHAKE_TRANSITION : NAV_SPRING}
+      style={{ boxShadow: GLASS_DROP_SHADOW }}
       className={cn(
-        "pointer-events-auto absolute right-2.5 top-2.5 gap-2 px-[3px]",
-        NAV_PILL_SURFACE,
+        "pointer-events-auto absolute right-2.5 top-2.5 isolate flex h-[30px] items-center justify-center gap-2 overflow-hidden px-[3px]",
         className,
       )}
     >
+      {/* Two cached lens sizes — the width tween crosses between them. */}
+      <GlassLayers
+        width={hovered ? NAV_EXPANDED_W : NAV_SIZE}
+        height={NAV_SIZE}
+        radius={hovered ? 23 : NAV_SIZE / 2}
+      />
       <NavArrow
         side="left"
         show={hovered}
@@ -159,8 +158,8 @@ export function FeedMediaNav({
       />
       <span
         className={cn(
-          "shrink-0 text-center font-medium tabular-nums tracking-[-0.02em] text-white",
-          hovered ? "min-w-[8px] text-[15px] leading-none" : "text-[15px] leading-none",
+          "relative z-10 shrink-0 text-center text-[15px] font-medium leading-none tabular-nums tracking-[-0.02em] text-white",
+          hovered && "min-w-[8px]",
         )}
       >
         {hovered ? index + 1 : count}

@@ -47,6 +47,8 @@ export type PostListItem = {
   } | null;
   /** All media for the post, ordered by position — used by the lightbox carousel. */
   images: {
+    /** Media row id — the key the copy proxy resolves. */
+    id: string | null;
     url: string;
     posterUrl: string | null;
     kind: "image" | "video" | "gif";
@@ -144,6 +146,7 @@ async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
           }
         : null,
       images: postMedia.map((m) => ({
+        id: m.id,
         url: m.mediumUrl ?? m.originalUrl,
         posterUrl: m.posterUrl ?? m.thumbnailUrl,
         kind: m.kind,
