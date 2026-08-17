@@ -145,16 +145,21 @@ function useLensMap(width: number, height: number, radius: number) {
   return map;
 }
 
-function GlassLayers({
+/**
+ * The three glass layers on their own, for callers that need to own the
+ * element (an animated pill, a button that also handles layout).
+ * The parent must be `relative isolate overflow-hidden`.
+ */
+export function GlassLayers({
   width,
   height,
   radius,
-  tint,
+  tint = DEFAULT_TINT,
 }: {
   width: number;
   height: number;
   radius: number;
-  tint: string;
+  tint?: string;
 }) {
   const fid = `glass-${useId().replace(/:/g, "")}`;
   const map = useLensMap(width, height, radius);
@@ -185,31 +190,75 @@ function GlassLayers({
                 preserveAspectRatio="none"
                 result="map"
               />
+              {/*
+                Dispersion: each channel refracts at its own angle, so the three
+                are displaced by slightly different amounts and then recombined
+                additively — one channel taken from each pass. Adding masked
+                channels reconstructs the backdrop exactly wherever the three
+                agree, so flat areas stay neutral and colour only appears at the
+                rim where the offsets actually diverge.
+              */}
+              <feDisplacementMap
+                in="SourceGraphic"
+                in2="map"
+                scale={scale * 1.03}
+                xChannelSelector="R"
+                yChannelSelector="G"
+                result="bentR"
+              />
               <feDisplacementMap
                 in="SourceGraphic"
                 in2="map"
                 scale={scale}
                 xChannelSelector="R"
                 yChannelSelector="G"
-                result="bent"
+                result="bentG"
               />
-              {/* Chromatic fringe: R and B refract at slightly different angles. */}
-              <feOffset in="bent" dx="0.7" dy="0" result="rShift" />
-              <feOffset in="bent" dx="-0.7" dy="0" result="bShift" />
+              <feDisplacementMap
+                in="SourceGraphic"
+                in2="map"
+                scale={scale * 0.97}
+                xChannelSelector="R"
+                yChannelSelector="G"
+                result="bentB"
+              />
               <feColorMatrix
-                in="rShift"
+                in="bentR"
                 type="matrix"
                 values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"
                 result="rOnly"
               />
               <feColorMatrix
-                in="bShift"
+                in="bentG"
+                type="matrix"
+                values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0"
+                result="gOnly"
+              />
+              <feColorMatrix
+                in="bentB"
                 type="matrix"
                 values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"
                 result="bOnly"
               />
-              <feBlend in="bent" in2="rOnly" mode="screen" result="rMix" />
-              <feBlend in="rMix" in2="bOnly" mode="screen" />
+              <feComposite
+                in="rOnly"
+                in2="gOnly"
+                operator="arithmetic"
+                k1="0"
+                k2="1"
+                k3="1"
+                k4="0"
+                result="rg"
+              />
+              <feComposite
+                in="rg"
+                in2="bOnly"
+                operator="arithmetic"
+                k1="0"
+                k2="1"
+                k3="1"
+                k4="0"
+              />
             </filter>
           </defs>
         </svg>
@@ -223,11 +272,12 @@ function GlassLayers({
           borderRadius: radius,
           ...(map
             ? {
-                backdropFilter: `url(#${fid}) blur(6px) saturate(1.6) brightness(1.05)`,
+                backdropFilter: `url(#${fid}) blur(14px) saturate(1.6) brightness(1.05)`,
               }
             : {
-                backdropFilter: "blur(10px) saturate(1.7) brightness(1.05)",
-                WebkitBackdropFilter: "blur(10px) saturate(1.7) brightness(1.05)",
+                backdropFilter: "blur(18px) saturate(1.7) brightness(1.05)",
+                WebkitBackdropFilter:
+                  "blur(18px) saturate(1.7) brightness(1.05)",
               }),
         }}
       />
@@ -239,14 +289,13 @@ function GlassLayers({
         style={{ borderRadius: radius, background: tint }}
       />
 
-      {/* Specular bevel: bright top edge, soft inner glow, hairline rim. */}
+      {/* Specular: a single top catch, not a ring around the whole chip. */}
       <span
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
           borderRadius: radius,
-          boxShadow:
-            "inset 0 1px 0 0 rgba(255,255,255,0.45), inset 0 -1px 0 0 rgba(255,255,255,0.12), inset 0 0 12px 0 rgba(255,255,255,0.18), inset 0 0 0 0.5px rgba(255,255,255,0.22)",
+          boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.22)",
         }}
       />
     </>
@@ -280,7 +329,11 @@ export function GlassSurface({
   return (
     <div
       className={cn("relative isolate overflow-hidden", className)}
-      style={{ borderRadius: radius, boxShadow: GLASS_DROP_SHADOW, ...style }}
+      style={{
+        borderRadius: radius,
+        boxShadow: GLASS_DROP_SHADOW,
+        ...style,
+      }}
     >
       <GlassLayers
         width={width}
@@ -314,7 +367,11 @@ export function GlassButton({
         "focus-visible:ring-2 focus-visible:ring-white/80",
         className,
       )}
-      style={{ borderRadius: radius, boxShadow: GLASS_DROP_SHADOW, ...style }}
+      style={{
+        borderRadius: radius,
+        boxShadow: GLASS_DROP_SHADOW,
+        ...style,
+      }}
     >
       <GlassLayers
         width={width}

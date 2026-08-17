@@ -10,6 +10,36 @@ export function mediaProxyUrl(mediaId: string, variant?: "medium") {
     : `/api/media/${mediaId}`;
 }
 
+const pngCache = new Map<string, Promise<Blob>>();
+
+function cached(key: string, make: () => Promise<Blob>) {
+  const hit = pngCache.get(key);
+  if (hit) return hit;
+  const pending = make().catch((err) => {
+    pngCache.delete(key);
+    throw err;
+  });
+  pngCache.set(key, pending);
+  return pending;
+}
+
+function fetchPng(mediaId: string) {
+  return cached(`img:${mediaId}`, () =>
+    fetch(mediaProxyUrl(mediaId, "medium"), { credentials: "same-origin" })
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        return res.blob();
+      })
+      .then(decodeToPng),
+  );
+}
+
+/** Warm the clipboard payload on hover so the click is a write, not a fetch. */
+export function prefetchCopy(media: CopyableMedia) {
+  if (!media.mediaId || media.kind !== "image") return;
+  void fetchPng(media.mediaId);
+}
+
 function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -105,12 +135,7 @@ export async function copySingleMedia(
 
   const png =
     media.kind === "image"
-      ? fetch(mediaProxyUrl(mediaId), { credentials: "same-origin" })
-          .then((res) => {
-            if (!res.ok) throw new Error(String(res.status));
-            return res.blob();
-          })
-          .then(decodeToPng)
+      ? fetchPng(mediaId)
       : Promise.resolve()
           .then(() => {
             if (!video) throw new Error("no video");

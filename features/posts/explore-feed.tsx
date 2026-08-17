@@ -15,7 +15,8 @@ import type { PostListItem, FeedSort } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
 import { ColorSearch } from "./color-search";
-import { FeedMediaNav, NAV_OPEN_AFFORDANCE_CLASS } from "./media-nav-pill";
+import { FeedMediaNav } from "./media-nav-pill";
+import { GlassSurface } from "./glass";
 import { searchByColorsAction } from "./color-search-action";
 import { loadFeedPageAction } from "./feed-actions";
 import { SetupRequired } from "@/components/setup-required";
@@ -1307,15 +1308,28 @@ function MasonryCard({
         ) : null}
       </div>
 
-      {/* top-left: open affordance (hover) — Paper node CL-0 */}
-      <span
-        className={cn(
-          "pointer-events-none absolute left-2.5 top-2.5 flex items-center rounded-[99px] p-1.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100",
-          NAV_OPEN_AFFORDANCE_CLASS,
-        )}
-      >
-        <ArrowUpRight className="size-[18px] text-white" strokeWidth={1.8} />
-      </span>
+      {/* top-left: source post — opens the original on X / the web */}
+      {post.sourceUrl ? (
+        <a
+          href={post.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open original post"
+          onClick={(e) => e.stopPropagation()}
+          className="absolute left-2.5 top-2.5 z-10 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+        >
+          <GlassSurface
+            width={30}
+            height={30}
+            radius={99}
+            className="flex size-[30px] items-center justify-center"
+          >
+            <span className="flex size-full items-center justify-center">
+              <ArrowUpRight className="size-[18px] text-white" strokeWidth={1.8} />
+            </span>
+          </GlassSurface>
+        </a>
+      ) : null}
 
       {/* top-right: hover media navigator for multi-image / video galleries */}
       {isGallery ? (

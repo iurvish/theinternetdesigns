@@ -558,6 +558,9 @@ function StageImage({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [loaded, setLoaded] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [userPaused, setUserPaused] = useState(false);
+  const [linger, setLinger] = useState(false);
+  const lingerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [muted, setMuted] = useState(true);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -596,6 +599,19 @@ function StageImage({
   }, [isVideo, active, src]);
 
   useEffect(() => {
+    setUserPaused(false);
+    setLinger(false);
+    if (lingerTimer.current) clearTimeout(lingerTimer.current);
+  }, [src]);
+
+  useEffect(
+    () => () => {
+      if (lingerTimer.current) clearTimeout(lingerTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
     const v = videoRef.current;
     if (v) v.muted = muted;
   }, [muted]);
@@ -603,8 +619,18 @@ function StageImage({
   const togglePlay = () => {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) void v.play().catch(() => {});
-    else v.pause();
+    if (v.paused) {
+      setUserPaused(false);
+      setLinger(true);
+      if (lingerTimer.current) clearTimeout(lingerTimer.current);
+      lingerTimer.current = setTimeout(() => setLinger(false), 2500);
+      void v.play().catch(() => {});
+    } else {
+      setLinger(false);
+      if (lingerTimer.current) clearTimeout(lingerTimer.current);
+      setUserPaused(true);
+      v.pause();
+    }
   };
 
   const toggleMute = () => {
@@ -632,8 +658,18 @@ function StageImage({
         e.preventDefault();
         const v = videoRef.current;
         if (!v) return;
-        if (v.paused) void v.play().catch(() => {});
-        else v.pause();
+        if (v.paused) {
+          setUserPaused(false);
+          setLinger(true);
+          if (lingerTimer.current) clearTimeout(lingerTimer.current);
+          lingerTimer.current = setTimeout(() => setLinger(false), 2500);
+          void v.play().catch(() => {});
+        } else {
+          setLinger(false);
+          if (lingerTimer.current) clearTimeout(lingerTimer.current);
+          setUserPaused(true);
+          v.pause();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -653,6 +689,7 @@ function StageImage({
         {isVideo ? (
           <OverlayPlayPill
             playing={playing}
+            visible={userPaused || linger}
             current={current}
             duration={duration}
             onTogglePlay={togglePlay}
