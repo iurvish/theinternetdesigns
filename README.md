@@ -12,8 +12,9 @@ Browse landing pages, interfaces, micro-interactions, product design, typography
 - **Categories** — Interfaces, Landing pages, Mobile apps, Dashboards, Interactions, Product, Typography, 3D, Brand, Logo, Illustration
 - **Creators** — browse work by designer / account
 - **Search** — find posts by keyword or color palette
-- **Admin studio** — import from X or Pinterest, tag with AI, manage categories & creators
-- **Media pipeline** — images/videos stored on Cloudflare R2 with color extraction
+- **Media** — images and videos served from Cloudflare R2
+
+Publishing and tagging live in a separate admin app.
 
 ## Stack
 
@@ -21,10 +22,8 @@ Browse landing pages, interfaces, micro-interactions, product design, typography
 | --- | --- |
 | Framework | [Next.js](https://nextjs.org) (App Router) |
 | UI | React 19, Tailwind CSS, Base UI / shadcn |
-| Database | Postgres via [Drizzle ORM](https://orm.drizzle.team) + Supabase |
-| Auth | Supabase Auth (admin) |
+| Database | Postgres via [Drizzle ORM](https://orm.drizzle.team) |
 | Storage | Cloudflare R2 |
-| AI | Google Gemini (optional tag suggestions) |
 | Motion | Motion |
 
 ## Getting started
@@ -32,7 +31,7 @@ Browse landing pages, interfaces, micro-interactions, product design, typography
 ### Prerequisites
 
 - Node.js 20+ (or [Bun](https://bun.sh))
-- A Supabase project (Postgres + Auth)
+- A Postgres database (this project uses Supabase Postgres)
 - A Cloudflare R2 bucket (optional for local browse-only)
 
 ### Setup
@@ -54,8 +53,6 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Admin lives at `/admin` after you create a Supabase user and sign in.
-
 ### Scripts
 
 | Command | Description |
@@ -75,14 +72,9 @@ Admin lives at `/admin` after you create a Supabase user and sign in.
 Copy `.env.example` → `.env.local` and set:
 
 ```bash
-# Supabase Postgres
+# Postgres
 DATABASE_URL=           # pooled connection URI
 DIRECT_URL=             # unpooled URI (migrations)
-
-# Supabase Auth
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
 
 # Cloudflare R2
 R2_ACCOUNT_ID=
@@ -93,11 +85,6 @@ R2_PUBLIC_URL=          # public CDN base, no trailing slash
 
 # Site
 NEXT_PUBLIC_SITE_URL=https://internetdesigns.com
-
-# Optional
-# GEMINI_API_KEY=       # AI tag suggestions in admin
-# TWEET_PROVIDER=syndication
-# PINTEREST_COOKIE=
 ```
 
 ## Project structure
@@ -105,11 +92,10 @@ NEXT_PUBLIC_SITE_URL=https://internetdesigns.com
 ```
 app/
   (public)/          # Explore, categories, creators, post pages
-  admin/             # Auth-gated admin (posts, creators, categories)
-  api/               # Preview & media helpers
+  api/               # Media proxy & copy events
 components/          # Shared UI & layout
 features/posts/      # Feed, masonry, palettes, queries
-lib/                 # DB, R2, auth, providers (X / Pinterest)
+lib/                 # DB, R2, media helpers
 drizzle/             # SQL migrations
 scripts/             # Seed & backfill utilities
 ```

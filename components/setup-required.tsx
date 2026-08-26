@@ -17,9 +17,7 @@ export function SetupRequired({ detail }: { detail?: string }) {
         ) : (
           <>
             The database isn&apos;t reachable yet. Fill in{" "}
-            <code>DATABASE_URL</code> and the{" "}
-            <code>NEXT_PUBLIC_SUPABASE_*</code> variables in{" "}
-            <code>.env.local</code>, then run:
+            <code>DATABASE_URL</code> in <code>.env.local</code>, then run:
           </>
         )}
       </p>
@@ -38,7 +36,7 @@ bun run seed:categories`}
       {detail ? (
         <details className="mt-3 max-w-md text-left text-xs text-muted-foreground">
           <summary className="cursor-pointer">First-time setup steps</summary>
-          <pre className="mt-2 whitespace-pre-wrap">{`Fill DATABASE_URL + NEXT_PUBLIC_SUPABASE_* in .env.local
+          <pre className="mt-2 whitespace-pre-wrap">{`Fill DATABASE_URL in .env.local
 bun run db:migrate
 bun run seed:categories`}</pre>
         </details>

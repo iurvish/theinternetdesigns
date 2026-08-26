@@ -218,8 +218,8 @@ export const postStyles = pgTable(
 );
 
 /**
- * Global key/value settings, edited from the admin panel. Currently holds the
- * "feed autoplay" flag; kept generic so future toggles reuse the same table.
+ * Global key/value settings. Currently holds the "feed autoplay" flag; kept
+ * generic so future toggles reuse the same table.
  */
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
@@ -231,7 +231,7 @@ export type Setting = typeof settings.$inferSelect;
 
 /**
  * Public gallery clipboard copies (image frame / video frame).
- * Written by the public site; read in admin analytics.
+ * Written by the public site; read by the separate admin app.
  */
 export const mediaCopies = pgTable(
   "media_copies",
@@ -240,7 +240,12 @@ export const mediaCopies = pgTable(
     mediaId: text("media_id")
       .notNull()
       .references(() => media.id, { onDelete: "cascade" }),
-    postId: text("post_id").references(() => posts.id, { onDelete: "cascade" }),
+    postId: text("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    creatorId: text("creator_id")
+      .notNull()
+      .references(() => creators.id, { onDelete: "cascade" }),
     kind: mediaKindEnum("kind").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -248,6 +253,7 @@ export const mediaCopies = pgTable(
     index("media_copies_created_idx").on(t.createdAt.desc()),
     index("media_copies_media_idx").on(t.mediaId),
     index("media_copies_post_idx").on(t.postId),
+    index("media_copies_creator_idx").on(t.creatorId),
   ],
 );
 

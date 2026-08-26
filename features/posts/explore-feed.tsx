@@ -1360,7 +1360,7 @@ function MasonryCard({
 }
 
 /**
- * Feed video — muted, looping, no controls. Plays when `play` is true (the admin
+ * Feed video — muted, looping, no controls. Plays when `play` is true (the
  * autoplay setting, or while the card is hovered) and pauses otherwise, fading to
  * the poster so the still frame stays sharp under the grid's shared-element morph.
  */
@@ -1443,7 +1443,7 @@ function EmptyState({
           ? "Try picking a different or lighter shade."
           : hasPosts
             ? "Try a different filter to see more designs."
-            : "Add posts from the admin panel to start populating the feed."}
+            : "New posts will show up here."}
       </p>
     </div>
   );

@@ -1,19 +1,25 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { media, mediaCopies } from "@/lib/db/schema";
+import { media, mediaCopies, posts } from "@/lib/db/schema";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const bodySchema = z.object({
-  mediaId: z.string().min(1),
+  mediaId: z.string().regex(UUID),
 });
 
 /**
  * Public, fire-and-forget copy tracker.
- * Called after a successful clipboard write on the gallery.
+ *
+ * The client only sends the media id. Post and creator are resolved from
+ * published rows so a spoofed payload cannot attribute copies to someone else.
  */
 export async function POST(request: Request) {
   let json: unknown;
@@ -30,12 +36,14 @@ export async function POST(request: Request) {
 
   const [row] = await db
     .select({
-      id: media.id,
-      postId: media.postId,
+      mediaId: media.id,
+      postId: posts.id,
+      creatorId: posts.creatorId,
       kind: media.kind,
     })
     .from(media)
-    .where(eq(media.id, parsed.data.mediaId))
+    .innerJoin(posts, eq(posts.id, media.postId))
+    .where(and(eq(media.id, parsed.data.mediaId), eq(posts.published, true)))
     .limit(1);
 
   if (!row) {
@@ -44,8 +52,9 @@ export async function POST(request: Request) {
 
   await db.insert(mediaCopies).values({
     id: randomUUID(),
-    mediaId: row.id,
+    mediaId: row.mediaId,
     postId: row.postId,
+    creatorId: row.creatorId,
     kind: row.kind,
   });
 
