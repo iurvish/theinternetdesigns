@@ -218,8 +218,8 @@ export const postStyles = pgTable(
 );
 
 /**
- * Global key/value settings, edited from the admin panel. Currently holds the
- * "feed autoplay" flag; kept generic so future toggles reuse the same table.
+ * Global key/value settings. Currently holds the "feed autoplay" flag; kept
+ * generic so future toggles reuse the same table.
  */
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
@@ -231,7 +231,7 @@ export type Setting = typeof settings.$inferSelect;
 
 /**
  * Public gallery clipboard copies (image frame / video frame).
- * Written by the public site; read in admin analytics.
+ * Written by the public site; read by the separate admin app.
  */
 export const mediaCopies = pgTable(
   "media_copies",

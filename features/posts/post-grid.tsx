@@ -110,7 +110,7 @@ function EmptyState() {
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 py-24 text-center">
       <h2 className="text-lg font-medium">No inspiration yet</h2>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-        Add posts from the admin panel to start populating the feed.
+        New posts will show up here.
       </p>
     </div>
   );
