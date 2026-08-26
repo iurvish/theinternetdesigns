@@ -229,6 +229,31 @@ export const settings = pgTable("settings", {
 
 export type Setting = typeof settings.$inferSelect;
 
+/**
+ * Public gallery clipboard copies (image frame / video frame).
+ * Written by the public site; read in admin analytics.
+ */
+export const mediaCopies = pgTable(
+  "media_copies",
+  {
+    id: text("id").primaryKey(),
+    mediaId: text("media_id")
+      .notNull()
+      .references(() => media.id, { onDelete: "cascade" }),
+    postId: text("post_id").references(() => posts.id, { onDelete: "cascade" }),
+    kind: mediaKindEnum("kind").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("media_copies_created_idx").on(t.createdAt.desc()),
+    index("media_copies_media_idx").on(t.mediaId),
+    index("media_copies_post_idx").on(t.postId),
+  ],
+);
+
+export type MediaCopy = typeof mediaCopies.$inferSelect;
+export type NewMediaCopy = typeof mediaCopies.$inferInsert;
+
 export type Creator = typeof creators.$inferSelect;
 export type NewCreator = typeof creators.$inferInsert;
 export type Category = typeof categories.$inferSelect;
