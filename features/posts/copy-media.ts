@@ -145,6 +145,7 @@ export async function copySingleMedia(
 
   try {
     await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+    trackCopy(mediaId);
     return true;
   } catch {
     // Firefox rejects promise-valued clipboard items; retry with the blob.
@@ -153,9 +154,20 @@ export async function copySingleMedia(
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
       ]);
+      trackCopy(mediaId);
       return true;
     } catch {
       return false;
     }
   }
+}
+
+/** Best-effort analytics — never block the copy UX. */
+function trackCopy(mediaId: string) {
+  void fetch("/api/copy-events", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mediaId }),
+    keepalive: true,
+  }).catch(() => {});
 }
