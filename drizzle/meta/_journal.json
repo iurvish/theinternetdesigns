@@ -71,6 +71,13 @@
       "when": 1785298070759,
       "tag": "0010_media_copies",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785298070760,
+      "tag": "0011_media_copies_creator",
+      "breakpoints": true
     }
   ]
 }

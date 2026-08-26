@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { categories, creators, posts } from "@/lib/db/schema";
+import { categories, creators, mediaCopies, posts } from "@/lib/db/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -15,6 +15,9 @@ export default async function AdminDashboard() {
   const [{ count: categoryCount }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(categories);
+  const [{ count: copyCount }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(mediaCopies);
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -24,10 +27,13 @@ export default async function AdminDashboard() {
           New post
         </Link>
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         <StatCard label="Posts" value={postCount} />
         <StatCard label="Creators" value={creatorCount} />
         <StatCard label="Categories" value={categoryCount} />
+        <Link href="/admin/copies" className="block">
+          <StatCard label="Copies" value={copyCount} />
+        </Link>
       </div>
     </div>
   );
