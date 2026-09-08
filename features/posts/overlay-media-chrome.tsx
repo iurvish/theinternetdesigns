@@ -20,6 +20,8 @@ import {
   type CopyableMedia,
 } from "./copy-media";
 
+type CopyElement = HTMLImageElement | HTMLVideoElement;
+
 /** A material arriving — scale + blur, critically damped. */
 const SURFACE_SPRING = { type: "spring", duration: 0.34, bounce: 0 } as const;
 
@@ -30,10 +32,10 @@ const CHIP = 34;
 
 function CopyButton({
   media,
-  getVideo,
+  getElement,
 }: {
   media: CopyableMedia;
-  getVideo?: () => HTMLVideoElement | null;
+  getElement?: () => CopyElement | null;
 }) {
   const [state, setState] = useState<"idle" | "loading" | "copied">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -61,12 +63,12 @@ function CopyButton({
             : "Copy image"
       }
       className="size-[34px]"
-      onPointerEnter={() => prefetchCopy(media)}
+      onPointerEnter={() => prefetchCopy(media, getElement?.())}
       onClick={async (e) => {
         e.stopPropagation();
         if (state === "loading") return;
         setState("loading");
-        const ok = await copySingleMedia(media, getVideo?.());
+        const ok = await copySingleMedia(media, getElement?.());
         if (!ok) {
           setState("idle");
           return;
@@ -227,17 +229,17 @@ export function OverlayMediaActions({
   showMute,
   muted,
   onToggleMute,
-  getVideo,
+  getElement,
 }: {
   media: CopyableMedia;
   showMute: boolean;
   muted: boolean;
   onToggleMute: () => void;
-  getVideo?: () => HTMLVideoElement | null;
+  getElement?: () => CopyElement | null;
 }) {
   useEffect(() => {
-    prefetchCopy(media);
-  }, [media.mediaId, media.kind]);
+    prefetchCopy(media, getElement?.());
+  }, [media.mediaId, media.kind, media.src]);
 
   return (
     <div
@@ -247,7 +249,7 @@ export function OverlayMediaActions({
       )}
     >
       {showMute ? <MuteButton muted={muted} onToggle={onToggleMute} /> : null}
-      <CopyButton media={media} getVideo={getVideo} />
+      <CopyButton media={media} getElement={getElement} />
     </div>
   );
 }

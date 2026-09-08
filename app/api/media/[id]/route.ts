@@ -7,7 +7,6 @@ import { serverEnv } from "@/lib/env";
 import { r2Bucket, r2Client } from "@/lib/r2/client";
 
 export const dynamic = "force-dynamic";
-
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,9 +19,9 @@ const CONTENT_TYPE_FALLBACK: Record<string, string> = {
 /**
  * Same-origin proxy for one published media row.
  *
- * The browser cannot read CDN bytes (no CORS), which breaks both clipboard
- * copy and canvas frame capture. Keying on the database id — never a URL —
- * keeps this from becoming an SSRF hop.
+ * Overlay copy prefers reading pixels from the on-screen element. This hop is
+ * the fallback when the CDN response is still opaque to the canvas. Keying on
+ * the database id — never a URL — keeps this from becoming an SSRF hop.
  */
 export async function GET(
   req: NextRequest,
@@ -84,7 +83,10 @@ export async function GET(
     );
     headers.set("accept-ranges", "bytes");
     headers.set("x-content-type-options", "nosniff");
-    headers.set("cache-control", "private, max-age=300");
+    headers.set(
+      "cache-control",
+      "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800",
+    );
     if (obj.ContentLength != null) {
       headers.set("content-length", String(obj.ContentLength));
     }

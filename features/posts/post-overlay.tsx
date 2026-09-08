@@ -11,6 +11,7 @@ import { OverlayMediaNav, overlayNavLabels } from "./media-nav-pill";
 import { OverlayMediaActions, OverlayPlayPill } from "./overlay-media-chrome";
 import { CaptionText } from "./caption-text";
 import { ColorSwatches } from "./color-swatches";
+import { prefetchCopy, releaseCopyWarm } from "./copy-media";
 import {
   playMediaSwitch,
   playOverlayClose,
@@ -414,6 +415,7 @@ export function PostOverlay({
                         poster={m.posterUrl}
                         kind={m.kind}
                         mediaId={m.id}
+                        center={isActive}
                         active={isActive && phase !== "in"}
                         interactive={isActive && phase !== "in"}
                         // Resume from — and keep writing back — the grid card's
@@ -471,6 +473,7 @@ export function PostOverlay({
                 poster={media[mediaIndex]?.posterUrl}
                 kind={media[mediaIndex]?.kind}
                 mediaId={media[mediaIndex]?.id}
+                center
               />
             </motion.div>
           </motion.div>
@@ -539,6 +542,7 @@ function StageImage({
   mediaId,
   active = false,
   interactive = false,
+  center = false,
   startTime,
   onTime,
 }: {
@@ -549,6 +553,8 @@ function StageImage({
   mediaId?: string | null;
   active?: boolean;
   interactive?: boolean;
+  /** True for the media the user is looking at — start warming copy immediately. */
+  center?: boolean;
   /** Seek here the moment the video starts, so it resumes rather than restarts. */
   startTime?: number;
   onTime?: (t: number) => void;
@@ -575,8 +581,16 @@ function StageImage({
   }, [startTime]);
 
   useEffect(() => {
+    if (!mediaId || !src) return;
+    if (!center && !active && !interactive) return;
+    const copyable = { mediaId, kind: kind ?? "image", src };
+    prefetchCopy(copyable, isVideo ? videoRef.current : ref.current);
+    return () => releaseCopyWarm(mediaId);
+  }, [mediaId, src, kind, isVideo, active, interactive, center]);
+
+  useEffect(() => {
     if (ref.current?.complete) setLoaded(true);
-  }, []);
+  }, [src]);
 
   // Only the centre slide plays; neighbours/hero rest on their poster.
   useEffect(() => {
@@ -680,11 +694,11 @@ function StageImage({
     interactive && mediaId ? (
       <>
         <OverlayMediaActions
-          media={{ mediaId, kind: kind ?? "image" }}
+          media={{ mediaId, kind: kind ?? "image", src }}
           showMute={canMute}
           muted={muted}
           onToggleMute={toggleMute}
-          getVideo={() => videoRef.current}
+          getElement={() => (isVideo ? videoRef.current : ref.current)}
         />
         {isVideo ? (
           <OverlayPlayPill
@@ -731,7 +745,7 @@ function StageImage({
           muted={muted}
           loop
           playsInline
-          preload="metadata"
+          preload={active ? "auto" : "metadata"}
           aria-label={alt || undefined}
           onClick={
             interactive
@@ -742,6 +756,13 @@ function StageImage({
               : undefined
           }
           onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+          onLoadedData={() => {
+            if ((!center && !active && !interactive) || !mediaId || !src) return;
+            prefetchCopy(
+              { mediaId, kind: kind ?? "image", src },
+              videoRef.current,
+            );
+          }}
           onTimeUpdate={(e) => {
             setCurrent(e.currentTarget.currentTime);
             onTime?.(e.currentTarget.currentTime);
@@ -773,7 +794,11 @@ function StageImage({
         src={src}
         alt={alt}
         draggable={false}
-        onLoad={() => setLoaded(true)}
+        onLoad={() => {
+          setLoaded(true);
+          if ((!center && !active && !interactive) || !mediaId || !src) return;
+          prefetchCopy({ mediaId, kind: kind ?? "image", src }, ref.current);
+        }}
         style={{ opacity: loaded ? 1 : 0 }}
         className="absolute inset-0 size-full select-none object-cover transition-opacity duration-300 ease-out"
       />
