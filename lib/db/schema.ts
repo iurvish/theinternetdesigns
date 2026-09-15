@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { getTableColumns, sql } from "drizzle-orm";
 import type { PaletteColor } from "@/lib/media/colors";
 import {
   boolean,
@@ -12,6 +12,7 @@ import {
   timestamp,
   uniqueIndex,
   varchar,
+  vector,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -100,6 +101,8 @@ export const posts = pgTable(
     interaction: varchar("interaction", { length: 80 }),
     /** Generated tsvector for FTS across title + caption + creator refs. */
     searchTokens: text("search_tokens"),
+    /** 2048-dim multimodal embedding (admin/OpenRouter). Never select in public lists. */
+    embedding: vector("embedding", { dimensions: 2048 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -110,8 +113,17 @@ export const posts = pgTable(
     index("posts_published_idx").on(t.published),
     index("posts_featured_idx").on(t.featured),
     index("posts_hidden_gem_idx").on(t.hiddenGem),
+    index("posts_embedding_hnsw_idx").using(
+      "hnsw",
+      sql`("embedding"::halfvec(2048)) halfvec_cosine_ops`,
+    ),
   ],
 );
+
+const { embedding: _, ...postPublicColumnSet } = getTableColumns(posts);
+/** Post columns safe for public selects — omits the 2048-dim embedding. */
+export const postPublicColumns = postPublicColumnSet;
+export type PostPublic = Omit<typeof posts.$inferSelect, "embedding">;
 
 export const media = pgTable(
   "media",

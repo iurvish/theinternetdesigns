@@ -1,7 +1,16 @@
 import "server-only";
+import { cache } from "react";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { categories, creators, media, postCategories, posts } from "@/lib/db/schema";
+import {
+  categories,
+  creators,
+  media,
+  postCategories,
+  postPublicColumns,
+  posts,
+  type PostPublic,
+} from "@/lib/db/schema";
 import {
   bestPaletteDistance,
   hexToHsl,
@@ -9,6 +18,7 @@ import {
 } from "@/lib/media/color-utils";
 import type { PaletteColor } from "@/lib/media/colors";
 import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
+import { searchSimilarHits } from "@/lib/db/similar-posts";
 
 export type FeedSort = "recent" | "oldest" | "featured" | "hidden_gems";
 
@@ -70,7 +80,7 @@ export function creatorProfileUrl(
 }
 
 /** Small shape shared by list/grid views. */
-async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
+async function loadPostsWithRelations(postRows: PostPublic[]) {
   if (postRows.length === 0) return [];
   const ids = postRows.map((p) => p.id);
   const creatorIds = Array.from(new Set(postRows.map((p) => p.creatorId)));
@@ -185,10 +195,10 @@ export async function getRecentPosts(
     ? and(eq(posts.published, true), flagFilter)
     : eq(posts.published, true);
 
-  let rows: (typeof posts.$inferSelect)[];
+  let rows: PostPublic[];
   if (opts.category && opts.category !== "all") {
     rows = await db
-      .select({ post: posts })
+      .select({ post: postPublicColumns })
       .from(posts)
       .innerJoin(postCategories, eq(postCategories.postId, posts.id))
       .innerJoin(categories, eq(categories.id, postCategories.categoryId))
@@ -199,7 +209,7 @@ export async function getRecentPosts(
       .then((r) => r.map((row) => row.post));
   } else {
     rows = await db
-      .select()
+      .select(postPublicColumns)
       .from(posts)
       .where(baseWhere)
       .orderBy(...order)
@@ -212,7 +222,7 @@ export async function getRecentPosts(
 export async function getPostsByCategory(slug: string, opts: { limit?: number } = {}) {
   const limit = opts.limit ?? 60;
   const rows = await db
-    .select({ post: posts })
+    .select({ post: postPublicColumns })
     .from(posts)
     .innerJoin(postCategories, eq(postCategories.postId, posts.id))
     .innerJoin(categories, eq(categories.id, postCategories.categoryId))
@@ -227,8 +237,8 @@ export async function searchPosts(query: string, opts: { limit?: number } = {}) 
   if (!q) return [];
   const limit = opts.limit ?? 60;
   // Postgres FTS via the generated search_tsv column plus creator name trigram match.
-  const rows = await db.execute<typeof posts.$inferSelect>(sql`
-    select p.* from ${posts} p
+  const idRows = await db.execute<{ id: string }>(sql`
+    select p.id from ${posts} p
     inner join ${creators} c on c.id = p.creator_id
     where p.published = true
       and (
@@ -241,7 +251,17 @@ export async function searchPosts(query: string, opts: { limit?: number } = {}) 
       p.published_at desc nulls last
     limit ${limit}
   `);
-  return loadPostsWithRelations(rows as unknown as (typeof posts.$inferSelect)[]);
+  const ids = (idRows as unknown as { id: string }[]).map((r) => r.id);
+  if (ids.length === 0) return [];
+  const postRows = await db
+    .select(postPublicColumns)
+    .from(posts)
+    .where(inArray(posts.id, ids));
+  const byId = new Map(postRows.map((r) => [r.id, r]));
+  const ordered = ids
+    .map((id) => byId.get(id))
+    .filter((r): r is PostPublic => Boolean(r));
+  return loadPostsWithRelations(ordered);
 }
 
 /**
@@ -300,16 +320,23 @@ export async function searchPostsByColors(
   const ids = scored.slice(0, limit).map((s) => s.id);
   if (ids.length === 0) return [];
 
-  const postRows = await db.select().from(posts).where(inArray(posts.id, ids));
+  const postRows = await db
+    .select(postPublicColumns)
+    .from(posts)
+    .where(inArray(posts.id, ids));
   const byId = new Map(postRows.map((r) => [r.id, r]));
   const ordered = ids
     .map((id) => byId.get(id))
-    .filter((r): r is typeof posts.$inferSelect => Boolean(r));
+    .filter((r): r is PostPublic => Boolean(r));
   return loadPostsWithRelations(ordered);
 }
 
-export async function getPostById(id: string) {
-  const [row] = await db.select().from(posts).where(eq(posts.id, id)).limit(1);
+export const getPostById = cache(async (id: string) => {
+  const [row] = await db
+    .select(postPublicColumns)
+    .from(posts)
+    .where(eq(posts.id, id))
+    .limit(1);
   if (!row) return null;
   const [creator, mediaRows, catRows] = await Promise.all([
     db.select().from(creators).where(eq(creators.id, row.creatorId)).limit(1),
@@ -330,4 +357,20 @@ export async function getPostById(id: string) {
     media: mediaRows,
     categories: catRows,
   };
+});
+
+/** Full feed-card posts nearest to `postId` — used by the overlay lightbox. */
+export async function getSimilarPosts(postId: string, limit = 12) {
+  const hits = await searchSimilarHits({ postId, limit });
+  if (hits.length === 0) return [];
+  const ids = hits.map((h) => h.id);
+  const postRows = await db
+    .select(postPublicColumns)
+    .from(posts)
+    .where(inArray(posts.id, ids));
+  const byId = new Map(postRows.map((r) => [r.id, r]));
+  const ordered = ids
+    .map((id) => byId.get(id))
+    .filter((r): r is PostPublic => Boolean(r));
+  return loadPostsWithRelations(ordered);
 }

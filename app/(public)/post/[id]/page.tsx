@@ -3,6 +3,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { creatorProfileUrl, getPostById } from "@/features/posts/queries";
+import { SimilarDesigns } from "@/features/posts/similar-designs";
+import { getCachedSimilarPosts } from "@/lib/db/similar-posts";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -17,7 +19,10 @@ export default async function PostPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const data = await getPostById(id);
+  const [data, similar] = await Promise.all([
+    getPostById(id),
+    getCachedSimilarPosts(id),
+  ]);
   if (!data || !data.creator) notFound();
   const { post, creator, media, categories } = data;
 
@@ -108,6 +113,8 @@ export default async function PostPage({
           ))}
         </div>
       ) : null}
+
+      <SimilarDesigns posts={similar} />
     </div>
   );
 }

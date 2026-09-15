@@ -78,6 +78,13 @@
       "when": 1785298070760,
       "tag": "0011_media_copies_creator",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785298070761,
+      "tag": "0012_pgvector_embeddings",
+      "breakpoints": true
     }
   ]
 }
