@@ -5,12 +5,20 @@ import { db } from "@/lib/db";
 import {
   categories,
   creators,
+  industries,
   media,
   postCategories,
+  postIndustries,
   postPublicColumns,
+  postStyles,
   posts,
+  styles,
   type PostPublic,
 } from "@/lib/db/schema";
+import {
+  interpretSearchQuery,
+  type SearchInterpretation,
+} from "@/lib/jev/interpret-search";
 import {
   bestPaletteDistance,
   hexToHsl,
@@ -232,26 +240,176 @@ export async function getPostsByCategory(slug: string, opts: { limit?: number } 
   return loadPostsWithRelations(rows.map((r) => r.post));
 }
 
-export async function searchPosts(query: string, opts: { limit?: number } = {}) {
-  const q = query.trim();
-  if (!q) return [];
-  const limit = opts.limit ?? 60;
-  // Postgres FTS via the generated search_tsv column plus creator name trigram match.
+async function ftsPostIds(query: string, limit: number): Promise<string[]> {
   const idRows = await db.execute<{ id: string }>(sql`
     select p.id from ${posts} p
     inner join ${creators} c on c.id = p.creator_id
     where p.published = true
       and (
-        p.search_tsv @@ plainto_tsquery('english', ${q})
-        or c.username ilike ${"%" + q + "%"}
-        or c.display_name ilike ${"%" + q + "%"}
+        p.search_tsv @@ plainto_tsquery('english', ${query})
+        or c.username ilike ${"%" + query + "%"}
+        or c.display_name ilike ${"%" + query + "%"}
       )
     order by
-      ts_rank_cd(p.search_tsv, plainto_tsquery('english', ${q})) desc,
+      ts_rank_cd(p.search_tsv, plainto_tsquery('english', ${query})) desc,
       p.published_at desc nulls last
     limit ${limit}
   `);
-  const ids = (idRows as unknown as { id: string }[]).map((r) => r.id);
+  return asIdList(idRows);
+}
+
+function asIdList(result: unknown): string[] {
+  const rows = Array.isArray(result)
+    ? result
+    : result && typeof result === "object" && "rows" in result
+      ? (result as { rows: { id: string }[] }).rows
+      : [];
+  return rows.map((r) => r.id);
+}
+
+async function idsByCategory(slug: string, limit: number): Promise<string[]> {
+  const rows = await db
+    .select({ id: posts.id })
+    .from(posts)
+    .innerJoin(postCategories, eq(postCategories.postId, posts.id))
+    .innerJoin(categories, eq(categories.id, postCategories.categoryId))
+    .where(and(eq(posts.published, true), eq(categories.slug, slug)))
+    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+async function idsByStyle(slug: string, limit: number): Promise<string[]> {
+  const rows = await db
+    .select({ id: posts.id })
+    .from(posts)
+    .innerJoin(postStyles, eq(postStyles.postId, posts.id))
+    .innerJoin(styles, eq(styles.id, postStyles.styleId))
+    .where(and(eq(posts.published, true), eq(styles.slug, slug)))
+    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+async function idsByIndustry(slug: string, limit: number): Promise<string[]> {
+  const rows = await db
+    .select({ id: posts.id })
+    .from(posts)
+    .innerJoin(postIndustries, eq(postIndustries.postId, posts.id))
+    .innerJoin(industries, eq(industries.id, postIndustries.industryId))
+    .where(and(eq(posts.published, true), eq(industries.slug, slug)))
+    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+async function idsByElement(slug: string, limit: number): Promise<string[]> {
+  const idRows = await db.execute<{ id: string }>(sql`
+    select p.id
+    from ${posts} p
+    inner join post_elements pe on pe.post_id = p.id
+    inner join elements e on e.id = pe.element_id
+    where p.published = true
+      and e.slug = ${slug}
+    order by p.created_at desc
+    limit ${limit}
+  `);
+  return asIdList(idRows);
+}
+
+function intersect(lists: string[][]): string[] {
+  if (lists.length === 0) return [];
+  const [first, ...rest] = lists;
+  if (!first) return [];
+  const sets = rest.map((list) => new Set(list));
+  return first.filter((id) => sets.every((set) => set.has(id)));
+}
+
+function rankMergedIds(opts: {
+  hard: string[][];
+  boost: Set<string>;
+  fts: string[];
+  limit: number;
+}): string[] {
+  const hardIds = opts.hard.length > 0 ? intersect(opts.hard) : [];
+  const seen = new Set<string>();
+  const ranked: string[] = [];
+  const push = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    ranked.push(id);
+  };
+  for (const id of hardIds) {
+    if (opts.boost.has(id)) push(id);
+  }
+  for (const id of hardIds) push(id);
+  for (const id of opts.fts) push(id);
+  return ranked.slice(0, opts.limit);
+}
+
+export async function searchPosts(query: string, opts: { limit?: number } = {}) {
+  const { posts: found } = await searchDesigns(query, opts);
+  return found;
+}
+
+export async function searchDesigns(
+  query: string,
+  opts: { limit?: number } = {},
+): Promise<{ posts: PostListItem[]; interpretation: SearchInterpretation }> {
+  const q = query.trim();
+  const empty: SearchInterpretation = {
+    query: q,
+    intent: "unknown",
+    source: "none",
+  };
+  if (!q) return { posts: [], interpretation: empty };
+
+  const limit = opts.limit ?? 60;
+  const interpretation = await interpretSearchQuery(q);
+  const fts = await ftsPostIds(q, limit);
+
+  if (interpretation.intent === "creator") {
+    const postsFound = await loadPostsByIds(fts.slice(0, limit));
+    return { posts: postsFound, interpretation };
+  }
+
+  const hardLists: string[][] = [];
+  const boost = new Set<string>();
+  const pool = Math.max(limit * 4, 240);
+
+  if (interpretation.category) {
+    const ids = await idsByCategory(interpretation.category.slug, pool);
+    if (ids.length > 0) hardLists.push(ids);
+  }
+  if (interpretation.element) {
+    const ids = await idsByElement(interpretation.element.slug, pool);
+    if (ids.length > 0) hardLists.push(ids);
+  }
+  if (interpretation.style) {
+    const styleIds = await idsByStyle(interpretation.style.slug, pool);
+    if (styleIds.length > 0) {
+      if (hardLists.length === 0) hardLists.push(styleIds);
+      else styleIds.forEach((id) => boost.add(id));
+    }
+  }
+  if (interpretation.industry) {
+    const industryIds = await idsByIndustry(interpretation.industry.slug, pool);
+    if (industryIds.length > 0) {
+      if (hardLists.length === 0) hardLists.push(industryIds);
+      else industryIds.forEach((id) => boost.add(id));
+    }
+  }
+
+  const ids = rankMergedIds({
+    hard: hardLists,
+    boost,
+    fts,
+    limit,
+  });
+  return { posts: await loadPostsByIds(ids), interpretation };
+}
+
+async function loadPostsByIds(ids: string[]): Promise<PostListItem[]> {
   if (ids.length === 0) return [];
   const postRows = await db
     .select(postPublicColumns)

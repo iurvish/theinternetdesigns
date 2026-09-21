@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  Suspense,
   type ReactNode,
 } from "react";
 import Image from "next/image";
@@ -20,6 +21,7 @@ import { GlassSurface } from "./glass";
 import { searchByColorsAction } from "./color-search-action";
 import { loadFeedPageAction } from "./feed-actions";
 import { SetupRequired } from "@/components/setup-required";
+import { SearchInput } from "@/components/layout/search-input";
 import {
   initTiksOnFirstGesture,
   playMediaSwitch,
@@ -245,6 +247,9 @@ export function ExploreFeed({
                   <GitHubStarLink />
                 </div>
               </div>
+              <div className="px-2 pb-2">
+                <ToolbarSearch />
+              </div>
               <PillRail
                 categories={categories}
                 active={active}
@@ -272,6 +277,9 @@ export function ExploreFeed({
               <Divider />
 
               <div className="flex shrink-0 items-center gap-2 py-3.5">
+                <div className="w-56">
+                  <ToolbarSearch />
+                </div>
                 <SortMenu
                   value={sort}
                   onChange={setSort}
@@ -297,6 +305,14 @@ export function ExploreFeed({
         <div className="h-16 w-full shrink-0 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]" />
       </div>
     </MotionConfig>
+  );
+}
+
+function ToolbarSearch() {
+  return (
+    <Suspense fallback={<div className="h-9 w-full rounded-full bg-white/70" />}>
+      <SearchInput />
+    </Suspense>
   );
 }
 

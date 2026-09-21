@@ -14,6 +14,8 @@ import {
   posts,
   styles,
 } from "@/lib/db/schema";
+import { jevConfigured } from "@/lib/jev/client";
+import { rerankSimilarWithJev } from "@/lib/jev/rerank-similar";
 
 export type SimilarPostItem = {
   id: string;
@@ -510,12 +512,43 @@ export async function searchSimilarHits(
       })()
     : ranked.slice(0, safeLimit);
 
-  return chosen.map((row) => ({
-    id: row.id,
-    title: row.title,
-    creatorId: row.creatorId,
-    similarity: Math.max(0, Math.min(1, row.score)),
-  }));
+  const reranked = jevConfigured()
+    ? await rerankSimilarWithJev({
+        source: {
+          title: target.title,
+          caption: target.caption,
+          categories: targetBag.categories,
+          elements: targetBag.elements,
+          styles: targetBag.styles,
+        },
+        candidates: chosen.map((row) => {
+          const bag = bags.get(row.id) ?? emptyBag();
+          return {
+            id: row.id,
+            title: row.title,
+            caption: bag.haystack || null,
+            categories: bag.categories,
+            elements: bag.elements,
+            styles: bag.styles,
+            score: row.score,
+          };
+        }),
+      })
+    : chosen;
+
+  const byChosen = new Map(chosen.map((row) => [row.id, row]));
+  return reranked.flatMap((row) => {
+    const original = byChosen.get(row.id);
+    if (!original) return [];
+    return [
+      {
+        id: original.id,
+        title: original.title,
+        creatorId: original.creatorId,
+        similarity: Math.max(0, Math.min(1, row.score)),
+      },
+    ];
+  });
 }
 
 /**
@@ -591,7 +624,7 @@ export async function findSimilarPosts(
 export const getCachedSimilarPosts = cache((postId: string, limit = 12) =>
   unstable_cache(
     async () => findSimilarPosts({ postId, limit }),
-    ["similar-posts-v3", postId, String(limit)],
+    ["similar-posts-v4", postId, String(limit)],
     { revalidate: 3600 },
   )(),
 );

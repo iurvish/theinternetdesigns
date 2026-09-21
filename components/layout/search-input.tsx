@@ -14,13 +14,17 @@ export function SearchInput() {
     setValue(initial);
   }, [initial]);
 
+  const go = (q: string) => {
+    const next = q.trim();
+    router.push(next ? `/search?q=${encodeURIComponent(next)}` : "/");
+  };
+
   return (
     <form
       className="relative w-full"
       onSubmit={(e) => {
         e.preventDefault();
-        const q = value.trim();
-        router.push(q ? `/search?q=${encodeURIComponent(q)}` : "/");
+        go(value);
       }}
     >
       <Search
@@ -31,9 +35,18 @@ export function SearchInput() {
         type="search"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Search designs, creators, categories…"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            go(value);
+          }
+        }}
+        placeholder="Search logos, landing pages, dark UI…"
         className="h-9 rounded-full border-border/70 bg-muted/40 pl-9 focus-visible:bg-background"
       />
+      <button type="submit" className="sr-only">
+        Search
+      </button>
     </form>
   );
 }

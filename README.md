@@ -66,6 +66,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run db:studio` | Open Drizzle Studio |
 | `npm run seed:categories` | Seed public categories |
 | `npm run backfill:colors` | Backfill extracted color palettes |
+| `bun run backfill:jev-tags` | Classify posts with Jev and replace tags |
+| `bun run jev:smoke` | Ping Jev via TypeSafe AI |
 
 ## Environment
 
@@ -85,6 +87,9 @@ R2_PUBLIC_URL=          # public CDN base, no trailing slash
 
 # Site
 NEXT_PUBLIC_SITE_URL=https://internetdesigns.com
+
+# TypeSafe AI (Jev search + tagging)
+TYPESAFE_AI_API_KEY=
 ```
 
 ## Project structure
