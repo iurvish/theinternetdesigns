@@ -137,10 +137,19 @@ function asRows<T>(result: unknown): T[] {
   return [];
 }
 
-async function loadVocabUncached(): Promise<{
-  byKind: Record<VocabKind, Map<string, VocabTerm>>;
-  index: Map<string, VocabTerm[]>;
-}> {
+/**
+ * Plain rows only — `unstable_cache` round-trips its value through JSON, so
+ * anything it stores has to survive serialization. The lookup Maps are rebuilt
+ * from these on each call (a few hundred entries; microseconds).
+ */
+type VocabRows = {
+  categories: { slug: string; name: string }[];
+  styles: { slug: string; name: string }[];
+  industries: { slug: string; name: string }[];
+  elements: { slug: string; name: string; aliases: string[] }[];
+};
+
+async function loadVocabRowsUncached(): Promise<VocabRows> {
   const [catRows, styleRows, industryRows, elementRows] = await Promise.all([
     db
       .select({
@@ -159,6 +168,26 @@ async function loadVocabUncached(): Promise<{
     `),
   ]);
 
+  return {
+    categories: catRows,
+    styles: styleRows,
+    industries: industryRows,
+    elements: asRows<{ slug: string; name: string; aliases: unknown }>(
+      elementRows,
+    ).map((row) => ({
+      slug: row.slug,
+      name: row.name,
+      aliases: Array.isArray(row.aliases)
+        ? row.aliases.filter((a): a is string => typeof a === "string")
+        : [],
+    })),
+  };
+}
+
+function buildVocab(rows: VocabRows): {
+  byKind: Record<VocabKind, Map<string, VocabTerm>>;
+  index: Map<string, VocabTerm[]>;
+} {
   const byKind: Record<VocabKind, Map<string, VocabTerm>> = {
     category: new Map(),
     style: new Map(),
@@ -184,19 +213,14 @@ async function loadVocabUncached(): Promise<{
 
   const publicCats = new Set<string>(PUBLIC_CATEGORY_SLUGS);
 
-  for (const row of catRows) {
+  for (const row of rows.categories) {
     if (!publicCats.has(row.slug)) continue;
     add("category", row.slug, row.name);
   }
-  for (const row of styleRows) add("style", row.slug, row.name);
-  for (const row of industryRows) add("industry", row.slug, row.name);
-  for (const row of asRows<{ slug: string; name: string; aliases: unknown }>(
-    elementRows,
-  )) {
-    const extra = Array.isArray(row.aliases)
-      ? row.aliases.filter((a): a is string => typeof a === "string")
-      : [];
-    add("element", row.slug, row.name, extra);
+  for (const row of rows.styles) add("style", row.slug, row.name);
+  for (const row of rows.industries) add("industry", row.slug, row.name);
+  for (const row of rows.elements) {
+    add("element", row.slug, row.name, row.aliases);
   }
 
   for (const [phrase, syn] of Object.entries(SYNONYMS)) {
@@ -210,10 +234,14 @@ async function loadVocabUncached(): Promise<{
   return { byKind, index };
 }
 
-const getVocab = () =>
-  unstable_cache(loadVocabUncached, ["jev-search-vocab-v1"], {
-    revalidate: 300,
-  })();
+async function getVocab() {
+  const rows = await unstable_cache(
+    loadVocabRowsUncached,
+    ["jev-search-vocab-v2"],
+    { revalidate: 300 },
+  )();
+  return buildVocab(rows);
+}
 
 function pickTerm(candidates: VocabTerm[], used: Set<VocabKind>): VocabTerm | null {
   const remaining = candidates.filter((c) => !used.has(c.kind));

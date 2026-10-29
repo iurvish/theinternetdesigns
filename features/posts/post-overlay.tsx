@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { ChevronDown, ExternalLink } from "lucide-react";
+import { ChevronDown, ExternalLink, Sparkles } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { OverlayMediaNav, overlayNavLabels } from "./media-nav-pill";
@@ -84,6 +84,9 @@ export function PostOverlay({
   const post = guestPost ?? feedPost;
   const [similar, setSimilar] = useState<PostListItem[]>([]);
   const similarRef = useRef<HTMLElement>(null);
+  // Drives the "scroll" nudge on the similar bar — it stops nagging once the
+  // person has actually scrolled, since by then the strip speaks for itself.
+  const [stageScrolled, setStageScrolled] = useState(false);
 
   const [phase, setPhase] = useState<"in" | "browse">("in");
   const [closing, setClosing] = useState(false);
@@ -180,6 +183,17 @@ export function PostOverlay({
 
   useLayoutEffect(() => {
     stageRef.current?.scrollTo({ top: 0 });
+  }, [post?.id]);
+
+  // Track the stage's own scroll — the overlay scrolls an inner element, so
+  // there is no window scroll to listen to.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onScroll = () => setStageScrolled(el.scrollTop > 24);
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
   }, [post?.id]);
 
   useEffect(() => {
@@ -397,7 +411,9 @@ export function PostOverlay({
   };
 
   const overlay = (
-    <div className="fixed inset-0 z-[100] flex flex-col md:block">
+    // Marked so the feed's ⌘K handler can tell the lightbox is up — both bind
+    // window-level arrow/Escape keys and would otherwise fight.
+    <div data-post-overlay="" className="fixed inset-0 z-[100] flex flex-col md:block">
       {/* Backdrop */}
       <motion.div
         className="absolute inset-0 bg-black/30 backdrop-blur-[16px]"
@@ -430,7 +446,9 @@ export function PostOverlay({
         <div
           className={cn(
             "relative shrink-0",
-            similar.length > 0 ? "h-[calc(100%-1.25rem)]" : "h-full",
+            // Leaves the similar bar + the top edge of its cards above the
+            // fold. The cut-off row is the cue; the bar is the label.
+            similar.length > 0 ? "h-[calc(100%-4.75rem)]" : "h-full",
           )}
           onClick={requestClose}
         >
@@ -577,23 +595,6 @@ export function PostOverlay({
               onBack={goBack}
               onForward={goForward}
             />
-            {similar.length > 0 ? (
-              <button
-                type="button"
-                onClick={scrollToSimilar}
-                aria-label="Scroll to similar posts"
-                className="flex min-h-10 flex-col items-center gap-0.5 rounded-full px-3 py-1 text-white/90 [text-shadow:0_1px_8px_rgba(0,0,0,0.35)] transition-opacity duration-200 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-              >
-                <span className="text-[11px] font-medium tracking-tight">
-                  Similar posts
-                </span>
-                <ChevronDown
-                  className="size-4 motion-reduce:animate-none motion-safe:animate-[overlay-hint_1.8s_ease-in-out_infinite]"
-                  strokeWidth={1.8}
-                  aria-hidden
-                />
-              </button>
-            ) : null}
           </motion.div>
         ) : null}
         </div>
@@ -602,15 +603,46 @@ export function PostOverlay({
           <section
             ref={similarRef}
             aria-labelledby="overlay-similar-heading"
-            className="relative z-20 scroll-mt-4 px-3 pb-10 pt-2 sm:px-5"
+            className="relative z-20 scroll-mt-3 px-3 pb-10 pt-3 sm:px-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2
-              id="overlay-similar-heading"
-              className="mb-3 text-[13px] font-medium tracking-tight text-white/90 [text-shadow:0_1px_8px_rgba(0,0,0,0.35)]"
-            >
-              Similar posts
+            <h2 id="overlay-similar-heading" className="sr-only">
+              Similar designs
             </h2>
+            <button
+              type="button"
+              onClick={scrollToSimilar}
+              // Dark glass, not light: the backdrop behind this bar is whatever design
+              // is open, so a white-on-white pairing is one pale screenshot away.
+              className="mb-3 flex w-full items-center gap-2 rounded-xl bg-[#1f2123]/60 px-3 py-2.5 text-left ring-1 ring-inset ring-white/15 backdrop-blur-md transition-colors duration-200 hover:bg-[#1f2123]/72 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              <Sparkles
+                className="size-4 shrink-0 text-white/75"
+                strokeWidth={1.8}
+                aria-hidden
+              />
+              <span className="text-[13px] font-medium tracking-tight text-white">
+                More designs like this
+              </span>
+              <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
+                {similar.length}
+              </span>
+              <span className="ml-auto flex shrink-0 items-center gap-1 text-[11px] font-medium tracking-tight text-white/75">
+                <span className="hidden sm:inline">
+                  {stageScrolled ? "Tap any to open" : "Scroll to browse"}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "size-4 transition-opacity duration-300",
+                    stageScrolled
+                      ? "opacity-0"
+                      : "motion-reduce:animate-none motion-safe:animate-[overlay-hint_1.8s_ease-in-out_infinite]",
+                  )}
+                  strokeWidth={1.8}
+                  aria-hidden
+                />
+              </span>
+            </button>
             <OverlaySimilarGrid
               posts={similar.map(similarCardFromListItem)}
               onSelect={openSimilar}

@@ -6,12 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
-  Suspense,
   type ReactNode,
 } from "react";
 import Image from "next/image";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { ArrowUpRight, Check, ChevronDown } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, Search, X } from "lucide-react";
 import type { PostListItem, FeedSort } from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
@@ -20,8 +19,10 @@ import { FeedMediaNav } from "./media-nav-pill";
 import { GlassSurface } from "./glass";
 import { searchByColorsAction } from "./color-search-action";
 import { loadFeedPageAction } from "./feed-actions";
+import { runSearchAction } from "./search-actions";
+import { SearchPalette, SearchTrigger } from "./search-command";
+import { searchKey, type ActiveSearch } from "./search-filter";
 import { SetupRequired } from "@/components/setup-required";
-import { SearchInput } from "@/components/layout/search-input";
 import {
   initTiksOnFirstGesture,
   playMediaSwitch,
@@ -167,7 +168,44 @@ export function ExploreFeed({
   // Selected search colours — when non-empty the grid below is replaced (in place,
   // no navigation) with colour-matched results.
   const [colors, setColors] = useState<string[]>([]);
+  // Committed palette search. Colour and keyword search both replace the grid,
+  // so they're mutually exclusive — two "the feed isn't the feed" modes at once
+  // would leave no way to tell which one you're looking at.
+  const [search, setSearch] = useState<ActiveSearch | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const safeInitialPosts = asPostList(initialPosts);
+
+  const applySearch = useCallback((next: ActiveSearch) => {
+    setSearch(next);
+    setColors([]);
+  }, []);
+
+  const applyColors = useCallback((next: string[]) => {
+    setColors(next);
+    if (next.length > 0) setSearch(null);
+  }, []);
+
+  // Picking a category is a way back to the normal feed, so it drops both
+  // replace-the-grid filters rather than silently doing nothing behind them.
+  const selectCategory = useCallback((slug: string) => {
+    setActive(slug);
+    setSearch(null);
+    setColors([]);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const cmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
+      const slash = e.key === "/" && !e.metaKey && !e.ctrlKey && !isTyping(e.target);
+      if (!cmdK && !slash) return;
+      // The lightbox owns the keyboard while it's up.
+      if (document.querySelector("[data-post-overlay]")) return;
+      e.preventDefault();
+      setPaletteOpen((open) => (cmdK ? !open : true));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const prefetchCategory = useCallback(
     (slug: string) => {
@@ -237,7 +275,7 @@ export function ExploreFeed({
                   MOBILE_ROW_SPLIT,
                 )}
               >
-                <ColorSearch selected={colors} onSelected={setColors} />
+                <ColorSearch selected={colors} onSelected={applyColors} />
                 <div className="flex shrink-0 items-center gap-2">
                   <SortMenu
                     value={sort}
@@ -247,21 +285,34 @@ export function ExploreFeed({
                   <GitHubStarLink />
                 </div>
               </div>
-              <div className="px-2 pb-2">
-                <ToolbarSearch />
+              {/* Own row on phones — four controls on one 390px line squeezes
+                  the field down to a bare glyph that reads as "some icon". */}
+              <div className={cn("px-2 py-2.5", MOBILE_ROW_SPLIT)}>
+                <SearchTrigger
+                  active={search}
+                  onOpen={() => setPaletteOpen(true)}
+                  onClear={() => setSearch(null)}
+                  className="w-full"
+                />
               </div>
               <PillRail
                 categories={categories}
                 active={active}
-                onSelect={setActive}
+                onSelect={selectCategory}
                 onPrefetch={prefetchCategory}
               />
             </div>
 
             {/* Desktop — single row: colour | categories | filter */}
             <div className="hidden items-stretch gap-x-4 px-3.5 sm:flex">
-              <div className="flex shrink-0 items-center py-3.5">
-                <ColorSearch selected={colors} onSelected={setColors} />
+              <div className="flex shrink-0 items-center gap-2 py-3.5">
+                <ColorSearch selected={colors} onSelected={applyColors} />
+                <SearchTrigger
+                  active={search}
+                  onOpen={() => setPaletteOpen(true)}
+                  onClear={() => setSearch(null)}
+                  className={search ? "w-[260px]" : "w-[208px]"}
+                />
               </div>
 
               <Divider />
@@ -269,7 +320,7 @@ export function ExploreFeed({
               <PillRail
                 categories={categories}
                 active={active}
-                onSelect={setActive}
+                onSelect={selectCategory}
                 onPrefetch={prefetchCategory}
                 className="min-w-0 flex-1"
               />
@@ -277,9 +328,6 @@ export function ExploreFeed({
               <Divider />
 
               <div className="flex shrink-0 items-center gap-2 py-3.5">
-                <div className="w-56">
-                  <ToolbarSearch />
-                </div>
                 <SortMenu
                   value={sort}
                   onChange={setSort}
@@ -298,21 +346,36 @@ export function ExploreFeed({
             active={active}
             sort={sort}
             colors={colors}
+            search={search}
+            onClearSearch={() => setSearch(null)}
+            onEditSearch={() => setPaletteOpen(true)}
           />
         </div>
 
         {/* Footer strip */}
         <div className="h-16 w-full shrink-0 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]" />
+
+        <SearchPalette
+          open={paletteOpen}
+          active={search}
+          onClose={() => setPaletteOpen(false)}
+          onSelect={applySearch}
+        />
       </div>
     </MotionConfig>
   );
 }
 
-function ToolbarSearch() {
+/** Keyboard shortcuts shouldn't fire while someone is typing somewhere else. */
+function isTyping(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName;
   return (
-    <Suspense fallback={<div className="h-9 w-full rounded-full bg-white/70" />}>
-      <SearchInput />
-    </Suspense>
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    el.isContentEditable
   );
 }
 
@@ -342,12 +405,18 @@ function FeedBody({
   active,
   sort,
   colors,
+  search,
+  onClearSearch,
+  onEditSearch,
 }: {
   initialPosts: PostListItem[];
   error: string | null;
   active: string;
   sort: SortKey;
   colors: string[];
+  search: ActiveSearch | null;
+  onClearSearch: () => void;
+  onEditSearch: () => void;
 }) {
   // Guard against undefined during HMR / stale call sites after the
   // postsPromise → initialPosts rename.
@@ -445,6 +514,30 @@ function FeedBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorKey]);
 
+  // Keyword / tag results, tagged with the filter key for the same reason as
+  // colours above: a stale response must never paint over a newer search.
+  const activeSearchKey = searchKey(search);
+  const [searchResult, setSearchResult] = useState<{
+    key: string;
+    posts: PostListItem[];
+    chips: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!search) return;
+    let cancelled = false;
+    const key = activeSearchKey;
+    runSearchAction(search).then((res) => {
+      if (!cancelled) {
+        setSearchResult({ key, posts: res.posts, chips: res.chips });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSearchKey]);
+
   // Swap the grid when category/sort change. Cached pages paint instantly;
   // uncached first visits show a skeleton instead of the previous category.
   useEffect(() => {
@@ -500,6 +593,7 @@ function FeedBody({
       loadingMoreRef.current ||
       !hasMore ||
       colors.length > 0 ||
+      search !== null ||
       feedBootstrapping
     )
       return;
@@ -537,6 +631,7 @@ function FeedBody({
   }, [
     hasMore,
     colors.length,
+    search,
     feedBootstrapping,
     feedPosts.length,
     active,
@@ -546,7 +641,7 @@ function FeedBody({
   // Prefetch the next page when the sentinel is ~800px from view.
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || colors.length > 0) return;
+    if (!el || colors.length > 0 || search !== null) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) void loadMore();
@@ -555,13 +650,21 @@ function FeedBody({
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [loadMore, colors.length, feedPosts.length, hasMore]);
+  }, [loadMore, colors.length, search, feedPosts.length, hasMore]);
 
   const colorActive = colors.length > 0;
   const colorReady = colorActive && colorResult?.key === colorKey;
   const colorLoading = colorActive && !colorReady;
   const colorPosts = colorReady ? colorResult!.posts : null;
-  const refreshing = colorLoading || feedBootstrapping;
+
+  const searchActive = search !== null;
+  const searchReady = searchActive && searchResult?.key === activeSearchKey;
+  const searchLoading = searchActive && !searchReady;
+  const searchPosts = searchReady ? searchResult!.posts : null;
+
+  const refreshing = colorLoading || searchLoading || feedBootstrapping;
+  // Both replace-the-grid modes page their whole result set in one request.
+  const paging = !colorActive && !searchActive;
 
   // Arrowing to another post inside the lightbox pulls its shared element out of the
   // previous card's layout group, which makes that card play its close morph behind
@@ -597,9 +700,10 @@ function FeedBody({
   // Colour search keeps the existing feed on screen (dimmed) while results load.
   // Category switches with no cache swap to a skeleton via empty feedPosts.
   const visible = useMemo(() => {
+    if (searchActive) return asPostList(searchPosts ?? feedPosts);
     if (colorActive) return asPostList(colorPosts ?? feedPosts);
     return asPostList(feedPosts);
-  }, [colorActive, colorPosts, feedPosts]);
+  }, [searchActive, searchPosts, colorActive, colorPosts, feedPosts]);
 
   const layoutReady = useMasonryReady();
   const columnCount = useMasonryLayout();
@@ -676,12 +780,22 @@ function FeedBody({
             isEmpty && "flex min-h-[50vh] flex-1 flex-col",
           )}
         >
+          {search ? (
+            <ResultsBar
+              search={search}
+              count={searchReady ? visible.length : null}
+              chips={searchReady ? (searchResult?.chips ?? []) : []}
+              onClear={onClearSearch}
+              onEdit={onEditSearch}
+            />
+          ) : null}
           {showSkeleton ? (
             <GridSkeletonColumns />
           ) : isEmpty ? (
             <EmptyState
               hasPosts={initialPosts.length > 0}
               colorSearch={colorActive}
+              searchLabel={search?.label ?? null}
             />
           ) : (
             <>
@@ -707,7 +821,7 @@ function FeedBody({
           )}
 
           {/* Infinite-scroll sentinel — starts fetching ~800px before it appears. */}
-          {!colorActive && hasMore && !showSkeleton ? (
+          {paging && hasMore && !showSkeleton ? (
             <div ref={sentinelRef} className="w-full py-4" aria-hidden>
               {loadingMore ? (
                 layoutReady ? (
@@ -1441,26 +1555,98 @@ function CardVideo({
 function EmptyState({
   hasPosts,
   colorSearch,
+  searchLabel,
 }: {
   hasPosts: boolean;
   colorSearch?: boolean;
+  searchLabel?: string | null;
 }) {
+  const title = searchLabel
+    ? `No designs for \u201c${searchLabel}\u201d`
+    : colorSearch
+      ? "No designs match those colours"
+      : hasPosts
+        ? "Nothing in this category yet"
+        : "No inspiration yet";
+  const detail = searchLabel
+    ? "Try a broader word, or pick a category from the search panel."
+    : colorSearch
+      ? "Try picking a different or lighter shade."
+      : hasPosts
+        ? "Try a different filter to see more designs."
+        : "New posts will show up here.";
+
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center bg-[#f7f7f7] py-16 text-center">
-      <h2 className="text-base font-medium text-[#1f2123]">
-        {colorSearch
-          ? "No designs match those colours"
-          : hasPosts
-            ? "Nothing in this category yet"
-            : "No inspiration yet"}
-      </h2>
-      <p className="mt-1 max-w-sm text-sm text-[#707275]">
-        {colorSearch
-          ? "Try picking a different or lighter shade."
-          : hasPosts
-            ? "Try a different filter to see more designs."
-            : "New posts will show up here."}
-      </p>
+      <h2 className="text-base font-medium text-[#1f2123]">{title}</h2>
+      <p className="mt-1 max-w-sm text-sm text-[#707275]">{detail}</p>
+    </div>
+  );
+}
+
+/**
+ * Says what the feed is showing and how to leave. The toolbar chip can scroll
+ * out of view once you are deep in results, so the answer to "why am I not
+ * seeing everything?" is repeated at the top of the grid itself.
+ */
+function ResultsBar({
+  search,
+  count,
+  chips,
+  onClear,
+  onEdit,
+}: {
+  search: ActiveSearch;
+  count: number | null;
+  chips: string[];
+  onClear: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#e8e8ea] bg-white px-3 py-2.5 shadow-[0_1px_2px_0_rgba(0,0,0,0.03)]">
+      <button
+        type="button"
+        onClick={onEdit}
+        className="flex min-w-0 items-center gap-2 text-left"
+        aria-label={`Change search: ${search.label}`}
+      >
+        <Search
+          className="size-4 shrink-0 text-[#8a8c8f]"
+          strokeWidth={1.8}
+          aria-hidden
+        />
+        <span className="truncate text-sm font-medium tracking-tight text-[#1f2123]">
+          {search.label}
+        </span>
+      </button>
+
+      <span className="shrink-0 text-sm tabular-nums text-[#8a8c8f]">
+        {count === null
+          ? "searching\u2026"
+          : `${count} ${count === 1 ? "design" : "designs"}`}
+      </span>
+
+      {chips.length > 0 ? (
+        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {chips.map((chip) => (
+            <span
+              key={chip}
+              className="rounded-full bg-[#f2f2f3] px-2 py-0.5 text-[11px] font-medium tracking-tight text-[#707275]"
+            >
+              {chip}
+            </span>
+          ))}
+        </span>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-auto flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs font-medium tracking-tight text-[#707275] transition-colors hover:bg-[#f2f2f3] hover:text-[#1f2123]"
+      >
+        Clear
+        <X className="size-3.5" strokeWidth={2.2} aria-hidden />
+      </button>
     </div>
   );
 }

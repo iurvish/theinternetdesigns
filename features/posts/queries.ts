@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -27,6 +28,8 @@ import {
 import type { PaletteColor } from "@/lib/media/colors";
 import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
 import { searchSimilarHits } from "@/lib/db/similar-posts";
+import { facetPostIds } from "./search-facets";
+import type { FacetKind } from "./search-filter";
 
 export type FeedSort = "recent" | "oldest" | "featured" | "hidden_gems";
 
@@ -517,8 +520,21 @@ export const getPostById = cache(async (id: string) => {
   };
 });
 
-/** Full feed-card posts nearest to `postId` — used by the overlay lightbox. */
-export async function getSimilarPosts(postId: string, limit = 12) {
+/**
+ * Full feed-card posts nearest to `postId` — used by the overlay lightbox.
+ *
+ * Cached for the same hour as the post page's version: the hit search runs a
+ * pgvector scan, six metadata reads and a Jev rerank, which is ~2.5s of work to
+ * repeat every time someone opens the same design.
+ */
+export const getSimilarPosts = (postId: string, limit = 12) =>
+  unstable_cache(
+    () => similarPostsUncached(postId, limit),
+    ["overlay-similar-posts-v1", postId, String(limit)],
+    { revalidate: 3600 },
+  )();
+
+async function similarPostsUncached(postId: string, limit: number) {
   const hits = await searchSimilarHits({ postId, limit });
   if (hits.length === 0) return [];
   const ids = hits.map((h) => h.id);
@@ -531,4 +547,18 @@ export async function getSimilarPosts(postId: string, limit = 12) {
     .map((id) => byId.get(id))
     .filter((r): r is PostPublic => Boolean(r));
   return loadPostsWithRelations(ordered);
+}
+
+/**
+ * Feed cards for one browse tag (category / element / style / industry).
+ * Powers the palette's "show these designs" commit — no Jev hop, since the
+ * person picked the tag themselves.
+ */
+export async function getPostsByFacet(
+  kind: FacetKind,
+  slug: string,
+  opts: { limit?: number } = {},
+): Promise<PostListItem[]> {
+  const ids = await facetPostIds(kind, slug, opts.limit ?? 120);
+  return loadPostsByIds(ids);
 }
