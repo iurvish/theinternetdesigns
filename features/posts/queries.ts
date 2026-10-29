@@ -1,7 +1,25 @@
 import "server-only";
+import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { categories, creators, media, postCategories, posts } from "@/lib/db/schema";
+import {
+  categories,
+  creators,
+  industries,
+  media,
+  postCategories,
+  postIndustries,
+  postPublicColumns,
+  postStyles,
+  posts,
+  styles,
+  type PostPublic,
+} from "@/lib/db/schema";
+import {
+  interpretSearchQuery,
+  type SearchInterpretation,
+} from "@/lib/jev/interpret-search";
 import {
   bestPaletteDistance,
   hexToHsl,
@@ -9,6 +27,9 @@ import {
 } from "@/lib/media/color-utils";
 import type { PaletteColor } from "@/lib/media/colors";
 import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
+import { searchSimilarHits } from "@/lib/db/similar-posts";
+import { facetPostIds } from "./search-facets";
+import type { FacetKind } from "./search-filter";
 
 export type FeedSort = "recent" | "oldest" | "featured" | "hidden_gems";
 
@@ -70,7 +91,7 @@ export function creatorProfileUrl(
 }
 
 /** Small shape shared by list/grid views. */
-async function loadPostsWithRelations(postRows: (typeof posts.$inferSelect)[]) {
+async function loadPostsWithRelations(postRows: PostPublic[]) {
   if (postRows.length === 0) return [];
   const ids = postRows.map((p) => p.id);
   const creatorIds = Array.from(new Set(postRows.map((p) => p.creatorId)));
@@ -185,10 +206,10 @@ export async function getRecentPosts(
     ? and(eq(posts.published, true), flagFilter)
     : eq(posts.published, true);
 
-  let rows: (typeof posts.$inferSelect)[];
+  let rows: PostPublic[];
   if (opts.category && opts.category !== "all") {
     rows = await db
-      .select({ post: posts })
+      .select({ post: postPublicColumns })
       .from(posts)
       .innerJoin(postCategories, eq(postCategories.postId, posts.id))
       .innerJoin(categories, eq(categories.id, postCategories.categoryId))
@@ -199,7 +220,7 @@ export async function getRecentPosts(
       .then((r) => r.map((row) => row.post));
   } else {
     rows = await db
-      .select()
+      .select(postPublicColumns)
       .from(posts)
       .where(baseWhere)
       .orderBy(...order)
@@ -212,7 +233,7 @@ export async function getRecentPosts(
 export async function getPostsByCategory(slug: string, opts: { limit?: number } = {}) {
   const limit = opts.limit ?? 60;
   const rows = await db
-    .select({ post: posts })
+    .select({ post: postPublicColumns })
     .from(posts)
     .innerJoin(postCategories, eq(postCategories.postId, posts.id))
     .innerJoin(categories, eq(categories.id, postCategories.categoryId))
@@ -222,26 +243,186 @@ export async function getPostsByCategory(slug: string, opts: { limit?: number } 
   return loadPostsWithRelations(rows.map((r) => r.post));
 }
 
-export async function searchPosts(query: string, opts: { limit?: number } = {}) {
-  const q = query.trim();
-  if (!q) return [];
-  const limit = opts.limit ?? 60;
-  // Postgres FTS via the generated search_tsv column plus creator name trigram match.
-  const rows = await db.execute<typeof posts.$inferSelect>(sql`
-    select p.* from ${posts} p
+async function ftsPostIds(query: string, limit: number): Promise<string[]> {
+  const idRows = await db.execute<{ id: string }>(sql`
+    select p.id from ${posts} p
     inner join ${creators} c on c.id = p.creator_id
     where p.published = true
       and (
-        p.search_tsv @@ plainto_tsquery('english', ${q})
-        or c.username ilike ${"%" + q + "%"}
-        or c.display_name ilike ${"%" + q + "%"}
+        p.search_tsv @@ plainto_tsquery('english', ${query})
+        or c.username ilike ${"%" + query + "%"}
+        or c.display_name ilike ${"%" + query + "%"}
       )
     order by
-      ts_rank_cd(p.search_tsv, plainto_tsquery('english', ${q})) desc,
+      ts_rank_cd(p.search_tsv, plainto_tsquery('english', ${query})) desc,
       p.published_at desc nulls last
     limit ${limit}
   `);
-  return loadPostsWithRelations(rows as unknown as (typeof posts.$inferSelect)[]);
+  return asIdList(idRows);
+}
+
+function asIdList(result: unknown): string[] {
+  const rows = Array.isArray(result)
+    ? result
+    : result && typeof result === "object" && "rows" in result
+      ? (result as { rows: { id: string }[] }).rows
+      : [];
+  return rows.map((r) => r.id);
+}
+
+async function idsByCategory(slug: string, limit: number): Promise<string[]> {
+  const rows = await db
+    .select({ id: posts.id })
+    .from(posts)
+    .innerJoin(postCategories, eq(postCategories.postId, posts.id))
+    .innerJoin(categories, eq(categories.id, postCategories.categoryId))
+    .where(and(eq(posts.published, true), eq(categories.slug, slug)))
+    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+async function idsByStyle(slug: string, limit: number): Promise<string[]> {
+  const rows = await db
+    .select({ id: posts.id })
+    .from(posts)
+    .innerJoin(postStyles, eq(postStyles.postId, posts.id))
+    .innerJoin(styles, eq(styles.id, postStyles.styleId))
+    .where(and(eq(posts.published, true), eq(styles.slug, slug)))
+    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+async function idsByIndustry(slug: string, limit: number): Promise<string[]> {
+  const rows = await db
+    .select({ id: posts.id })
+    .from(posts)
+    .innerJoin(postIndustries, eq(postIndustries.postId, posts.id))
+    .innerJoin(industries, eq(industries.id, postIndustries.industryId))
+    .where(and(eq(posts.published, true), eq(industries.slug, slug)))
+    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+async function idsByElement(slug: string, limit: number): Promise<string[]> {
+  const idRows = await db.execute<{ id: string }>(sql`
+    select p.id
+    from ${posts} p
+    inner join post_elements pe on pe.post_id = p.id
+    inner join elements e on e.id = pe.element_id
+    where p.published = true
+      and e.slug = ${slug}
+    order by p.created_at desc
+    limit ${limit}
+  `);
+  return asIdList(idRows);
+}
+
+function intersect(lists: string[][]): string[] {
+  if (lists.length === 0) return [];
+  const [first, ...rest] = lists;
+  if (!first) return [];
+  const sets = rest.map((list) => new Set(list));
+  return first.filter((id) => sets.every((set) => set.has(id)));
+}
+
+function rankMergedIds(opts: {
+  hard: string[][];
+  boost: Set<string>;
+  fts: string[];
+  limit: number;
+}): string[] {
+  const hardIds = opts.hard.length > 0 ? intersect(opts.hard) : [];
+  const seen = new Set<string>();
+  const ranked: string[] = [];
+  const push = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    ranked.push(id);
+  };
+  for (const id of hardIds) {
+    if (opts.boost.has(id)) push(id);
+  }
+  for (const id of hardIds) push(id);
+  for (const id of opts.fts) push(id);
+  return ranked.slice(0, opts.limit);
+}
+
+export async function searchPosts(query: string, opts: { limit?: number } = {}) {
+  const { posts: found } = await searchDesigns(query, opts);
+  return found;
+}
+
+export async function searchDesigns(
+  query: string,
+  opts: { limit?: number } = {},
+): Promise<{ posts: PostListItem[]; interpretation: SearchInterpretation }> {
+  const q = query.trim();
+  const empty: SearchInterpretation = {
+    query: q,
+    intent: "unknown",
+    source: "none",
+  };
+  if (!q) return { posts: [], interpretation: empty };
+
+  const limit = opts.limit ?? 60;
+  const interpretation = await interpretSearchQuery(q);
+  const fts = await ftsPostIds(q, limit);
+
+  if (interpretation.intent === "creator") {
+    const postsFound = await loadPostsByIds(fts.slice(0, limit));
+    return { posts: postsFound, interpretation };
+  }
+
+  const hardLists: string[][] = [];
+  const boost = new Set<string>();
+  const pool = Math.max(limit * 4, 240);
+
+  if (interpretation.category) {
+    const ids = await idsByCategory(interpretation.category.slug, pool);
+    if (ids.length > 0) hardLists.push(ids);
+  }
+  if (interpretation.element) {
+    const ids = await idsByElement(interpretation.element.slug, pool);
+    if (ids.length > 0) hardLists.push(ids);
+  }
+  if (interpretation.style) {
+    const styleIds = await idsByStyle(interpretation.style.slug, pool);
+    if (styleIds.length > 0) {
+      if (hardLists.length === 0) hardLists.push(styleIds);
+      else styleIds.forEach((id) => boost.add(id));
+    }
+  }
+  if (interpretation.industry) {
+    const industryIds = await idsByIndustry(interpretation.industry.slug, pool);
+    if (industryIds.length > 0) {
+      if (hardLists.length === 0) hardLists.push(industryIds);
+      else industryIds.forEach((id) => boost.add(id));
+    }
+  }
+
+  const ids = rankMergedIds({
+    hard: hardLists,
+    boost,
+    fts,
+    limit,
+  });
+  return { posts: await loadPostsByIds(ids), interpretation };
+}
+
+async function loadPostsByIds(ids: string[]): Promise<PostListItem[]> {
+  if (ids.length === 0) return [];
+  const postRows = await db
+    .select(postPublicColumns)
+    .from(posts)
+    .where(inArray(posts.id, ids));
+  const byId = new Map(postRows.map((r) => [r.id, r]));
+  const ordered = ids
+    .map((id) => byId.get(id))
+    .filter((r): r is PostPublic => Boolean(r));
+  return loadPostsWithRelations(ordered);
 }
 
 /**
@@ -300,16 +481,23 @@ export async function searchPostsByColors(
   const ids = scored.slice(0, limit).map((s) => s.id);
   if (ids.length === 0) return [];
 
-  const postRows = await db.select().from(posts).where(inArray(posts.id, ids));
+  const postRows = await db
+    .select(postPublicColumns)
+    .from(posts)
+    .where(inArray(posts.id, ids));
   const byId = new Map(postRows.map((r) => [r.id, r]));
   const ordered = ids
     .map((id) => byId.get(id))
-    .filter((r): r is typeof posts.$inferSelect => Boolean(r));
+    .filter((r): r is PostPublic => Boolean(r));
   return loadPostsWithRelations(ordered);
 }
 
-export async function getPostById(id: string) {
-  const [row] = await db.select().from(posts).where(eq(posts.id, id)).limit(1);
+export const getPostById = cache(async (id: string) => {
+  const [row] = await db
+    .select(postPublicColumns)
+    .from(posts)
+    .where(eq(posts.id, id))
+    .limit(1);
   if (!row) return null;
   const [creator, mediaRows, catRows] = await Promise.all([
     db.select().from(creators).where(eq(creators.id, row.creatorId)).limit(1),
@@ -330,4 +518,47 @@ export async function getPostById(id: string) {
     media: mediaRows,
     categories: catRows,
   };
+});
+
+/**
+ * Full feed-card posts nearest to `postId` — used by the overlay lightbox.
+ *
+ * Cached for the same hour as the post page's version: the hit search runs a
+ * pgvector scan, six metadata reads and a Jev rerank, which is ~2.5s of work to
+ * repeat every time someone opens the same design.
+ */
+export const getSimilarPosts = (postId: string, limit = 12) =>
+  unstable_cache(
+    () => similarPostsUncached(postId, limit),
+    ["overlay-similar-posts-v1", postId, String(limit)],
+    { revalidate: 3600 },
+  )();
+
+async function similarPostsUncached(postId: string, limit: number) {
+  const hits = await searchSimilarHits({ postId, limit });
+  if (hits.length === 0) return [];
+  const ids = hits.map((h) => h.id);
+  const postRows = await db
+    .select(postPublicColumns)
+    .from(posts)
+    .where(inArray(posts.id, ids));
+  const byId = new Map(postRows.map((r) => [r.id, r]));
+  const ordered = ids
+    .map((id) => byId.get(id))
+    .filter((r): r is PostPublic => Boolean(r));
+  return loadPostsWithRelations(ordered);
+}
+
+/**
+ * Feed cards for one browse tag (category / element / style / industry).
+ * Powers the palette's "show these designs" commit — no Jev hop, since the
+ * person picked the tag themselves.
+ */
+export async function getPostsByFacet(
+  kind: FacetKind,
+  slug: string,
+  opts: { limit?: number } = {},
+): Promise<PostListItem[]> {
+  const ids = await facetPostIds(kind, slug, opts.limit ?? 120);
+  return loadPostsByIds(ids);
 }

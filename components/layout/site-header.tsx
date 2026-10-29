@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { SearchInput } from "@/components/layout/search-input";
 import { SITE_NAME } from "@/lib/site-config";
 
@@ -13,7 +14,9 @@ export function SiteHeader() {
           {SITE_NAME}
         </Link>
         <div className="ml-auto flex flex-1 items-center justify-end gap-3 md:flex-none md:w-96">
-          <SearchInput />
+          <Suspense fallback={<div className="h-9 w-full rounded-full bg-muted/40" />}>
+            <SearchInput />
+          </Suspense>
         </div>
       </div>
     </header>

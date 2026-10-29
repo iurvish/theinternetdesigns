@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { ChevronDown, ExternalLink } from "lucide-react";
+import { ChevronDown, ExternalLink, Sparkles } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { OverlayMediaNav, overlayNavLabels } from "./media-nav-pill";
@@ -18,6 +18,11 @@ import {
   playPostSwitch,
 } from "@/lib/tiks-sounds";
 import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
+import { loadSimilarPostsAction } from "./feed-actions";
+import {
+  OverlaySimilarGrid,
+  similarCardFromListItem,
+} from "./similar-designs";
 
 const SOURCE_LABELS: Record<PostListItem["source"], string> = {
   x: "X",
@@ -74,7 +79,14 @@ export function PostOverlay({
   getVideoTime?: (id: string) => number | undefined;
   setVideoTime?: (id: string, t: number) => void;
 }) {
-  const post = posts[index];
+  const feedPost = posts[index];
+  const [guestPost, setGuestPost] = useState<PostListItem | null>(null);
+  const post = guestPost ?? feedPost;
+  const [similar, setSimilar] = useState<PostListItem[]>([]);
+  const similarRef = useRef<HTMLElement>(null);
+  // Drives the "scroll" nudge on the similar bar — it stops nagging once the
+  // person has actually scrolled, since by then the strip speaks for itself.
+  const [stageScrolled, setStageScrolled] = useState(false);
 
   const [phase, setPhase] = useState<"in" | "browse">("in");
   const [closing, setClosing] = useState(false);
@@ -123,6 +135,7 @@ export function PostOverlay({
     setSeenIndex(index);
     setMediaIndex(0);
     setSwitching(true);
+    setGuestPost(null);
   }
 
   const media: MediaItem[] = post?.images?.length
@@ -148,6 +161,40 @@ export function PostOverlay({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!post?.id) {
+      setSimilar([]);
+      return;
+    }
+    let cancelled = false;
+    setSimilar([]);
+    loadSimilarPostsAction(post.id)
+      .then((rows) => {
+        if (!cancelled) setSimilar(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSimilar([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [post?.id]);
+
+  useLayoutEffect(() => {
+    stageRef.current?.scrollTo({ top: 0 });
+  }, [post?.id]);
+
+  // Track the stage's own scroll — the overlay scrolls an inner element, so
+  // there is no window scroll to listen to.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onScroll = () => setStageScrolled(el.scrollTop > 24);
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [post?.id]);
 
   useEffect(() => {
     if (phase !== "in") return;
@@ -262,10 +309,17 @@ export function PostOverlay({
   // Navigation is one-dimensional: step through the post's media, then roll over to
   // the neighbouring post once you run off either end.
   const goBack = useCallback(() => {
+    if (guestPost) {
+      playPostSwitch();
+      setGuestPost(null);
+      setMediaIndex(0);
+      setSwitching(true);
+      return;
+    }
     if (mediaIndex > 0) goMedia(-1);
     else if (index > 0) goPost(-1);
     else bumpNav();
-  }, [mediaIndex, index, goMedia, goPost, bumpNav]);
+  }, [guestPost, mediaIndex, index, goMedia, goPost, bumpNav]);
 
   const goForward = useCallback(() => {
     if (mediaIndex < mediaCount - 1) goMedia(1);
@@ -280,13 +334,20 @@ export function PostOverlay({
         return;
       }
       if (e.defaultPrevented) return;
-      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
-        e.preventDefault(); // don't let arrows scroll the page / panel
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
       }
       if (e.key === "ArrowLeft") goBack();
       else if (e.key === "ArrowRight") goForward();
-      else if (e.key === "ArrowUp") goPost(-1);
-      else if (e.key === "ArrowDown") goPost(1);
+      else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        stageRef.current?.scrollBy({ top: 140, behavior: reduce ? "auto" : "smooth" });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        stageRef.current?.scrollBy({ top: -140, behavior: reduce ? "auto" : "smooth" });
+      }
     };
     window.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -297,11 +358,11 @@ export function PostOverlay({
       if (navShakeRef.current) clearTimeout(navShakeRef.current);
       document.body.style.overflow = prevOverflow;
     };
-  }, [goBack, goForward, goPost, requestClose]);
+  }, [goBack, goForward, requestClose]);
 
   if (!post) return null;
 
-  const atStart = mediaIndex === 0 && index === 0;
+  const atStart = !guestPost && mediaIndex === 0 && index === 0;
   const atEnd = mediaIndex >= mediaCount - 1 && index === posts.length - 1;
 
   const aspect =
@@ -323,8 +384,36 @@ export function PostOverlay({
     mediaCount,
   });
 
+  const openSimilar = (id: string) => {
+    const picked = similar.find((p) => p.id === id);
+    if (!picked) return;
+    playPostSwitch();
+    const existing = posts.findIndex((p) => p.id === id);
+    if (existing >= 0) {
+      setGuestPost(null);
+      onIndexChange(existing);
+      return;
+    }
+    setGuestPost(picked);
+    setMediaIndex(0);
+    setSwitching(true);
+  };
+
+  const scrollToSimilar = () => {
+    const stage = stageRef.current;
+    const section = similarRef.current;
+    if (!stage || !section) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    stage.scrollTo({
+      top: section.offsetTop,
+      behavior: reduce ? "auto" : "smooth",
+    });
+  };
+
   const overlay = (
-    <div className="fixed inset-0 z-[100] flex flex-col md:block">
+    // Marked so the feed's ⌘K handler can tell the lightbox is up — both bind
+    // window-level arrow/Escape keys and would otherwise fight.
+    <div data-post-overlay="" className="fixed inset-0 z-[100] flex flex-col md:block">
       {/* Backdrop */}
       <motion.div
         className="absolute inset-0 bg-black/30 backdrop-blur-[16px]"
@@ -348,12 +437,21 @@ export function PostOverlay({
       </motion.div>
 
       {/* Carousel stage. On mobile it fills the top flex region; on desktop it
-          sits left of the info sidebar. Two layers: a filmstrip the user browses,
-          and a hidden hero behind it that carries the shared-element layoutId. */}
+          sits left of the info sidebar. Scrolls vertically so similar posts sit
+          below the current design — first screen stays a full viewport. */}
       <div
         ref={stageRef}
-        className="pointer-events-none relative z-10 min-h-0 flex-1 overflow-hidden md:absolute md:inset-y-0 md:left-0 md:right-[340px]"
+        className="relative z-10 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin] md:absolute md:inset-y-0 md:left-0 md:right-[340px]"
       >
+        <div
+          className={cn(
+            "relative shrink-0",
+            // Leaves the similar bar + the top edge of its cards above the
+            // fold. The cut-off row is the cue; the bar is the label.
+            similar.length > 0 ? "h-[calc(100%-4.75rem)]" : "h-full",
+          )}
+          onClick={requestClose}
+        >
         {/* Browse layer — the filmstrip. All visible slides animate to their new
             offset (translate + scale) together when the media index changes, so
             paging reads as one continuous carousel. On close it unmounts instantly
@@ -396,7 +494,8 @@ export function PostOverlay({
                         : "pointer-events-auto absolute left-1/2 top-1/2 cursor-pointer touch-pan-y"
                     }
                     style={{ width: frameW, height: frameH, marginLeft: -frameW / 2, marginTop: -frameH / 2, zIndex }}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (!isActive) goMedia(i - mediaIndex);
                     }}
                     onTouchStart={mediaCount > 1 ? handleTouchStart : undefined}
@@ -479,15 +578,14 @@ export function PostOverlay({
           </motion.div>
         ) : null}
 
-        {/* The overlay's only chrome: one pair of arrows under the frame. They page
-            through the post's media, then roll over to the previous/next post at the
-            ends — same rule as the ← → keys. */}
+        {/* Arrows under the frame, then a small hint that similar posts wait below. */}
         {!closing && phase === "browse" ? (
           <motion.div
-            className="pointer-events-auto absolute inset-x-0 bottom-4 z-40 flex items-center justify-center sm:bottom-5"
+            className="pointer-events-auto absolute inset-x-0 bottom-3 z-40 flex flex-col items-center gap-2.5 sm:bottom-4"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={FADE}
+            onClick={(e) => e.stopPropagation()}
           >
             <OverlayMediaNav
               shake={navShake}
@@ -498,6 +596,58 @@ export function PostOverlay({
               onForward={goForward}
             />
           </motion.div>
+        ) : null}
+        </div>
+
+        {similar.length > 0 && !closing ? (
+          <section
+            ref={similarRef}
+            aria-labelledby="overlay-similar-heading"
+            className="relative z-20 scroll-mt-3 px-3 pb-10 pt-3 sm:px-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="overlay-similar-heading" className="sr-only">
+              Similar designs
+            </h2>
+            <button
+              type="button"
+              onClick={scrollToSimilar}
+              // Dark glass, not light: the backdrop behind this bar is whatever design
+              // is open, so a white-on-white pairing is one pale screenshot away.
+              className="mb-3 flex w-full items-center gap-2 rounded-xl bg-[#1f2123]/60 px-3 py-2.5 text-left ring-1 ring-inset ring-white/15 backdrop-blur-md transition-colors duration-200 hover:bg-[#1f2123]/72 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              <Sparkles
+                className="size-4 shrink-0 text-white/75"
+                strokeWidth={1.8}
+                aria-hidden
+              />
+              <span className="text-[13px] font-medium tracking-tight text-white">
+                More designs like this
+              </span>
+              <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
+                {similar.length}
+              </span>
+              <span className="ml-auto flex shrink-0 items-center gap-1 text-[11px] font-medium tracking-tight text-white/75">
+                <span className="hidden sm:inline">
+                  {stageScrolled ? "Tap any to open" : "Scroll to browse"}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "size-4 transition-opacity duration-300",
+                    stageScrolled
+                      ? "opacity-0"
+                      : "motion-reduce:animate-none motion-safe:animate-[overlay-hint_1.8s_ease-in-out_infinite]",
+                  )}
+                  strokeWidth={1.8}
+                  aria-hidden
+                />
+              </span>
+            </button>
+            <OverlaySimilarGrid
+              posts={similar.map(similarCardFromListItem)}
+              onSelect={openSimilar}
+            />
+          </section>
         ) : null}
       </div>
 

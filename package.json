@@ -13,14 +13,18 @@
     "db:studio": "drizzle-kit studio",
     "seed:categories": "tsx scripts/seed-categories.ts",
     "backfill:colors": "tsx scripts/backfill-colors.ts",
+    "backfill:jev-tags": "bun --env-file=.env.local scripts/backfill-jev-tags.ts",
+    "jev:smoke": "bun --env-file=.env.local scripts/jev-smoke.ts",
     "backfill:cdn-urls": "tsx scripts/rewrite-r2-cdn-urls.ts",
     "set-r2-cors": "tsx scripts/set-r2-cors.ts"
   },
   "dependencies": {
+    "@ai-sdk/typesafe-ai": "^3.0.4",
     "@aws-sdk/client-s3": "^3.1097.0",
     "@base-ui/react": "^1.6.0",
     "@rexa-developer/tiks": "^0.3.0",
     "@vercel/analytics": "^2.0.1",
+    "ai": "^7.0.107",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",

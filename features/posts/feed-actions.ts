@@ -1,6 +1,6 @@
 "use server";
 
-import { getRecentPosts, type FeedSort, type PostListItem } from "./queries";
+import { getRecentPosts, getSimilarPosts, type FeedSort, type PostListItem } from "./queries";
 
 const PAGE_SIZE = 24;
 
@@ -16,4 +16,11 @@ export async function loadFeedPageAction(opts: {
     category: opts.category ?? "all",
     sort: opts.sort ?? "recent",
   });
+}
+
+export async function loadSimilarPostsAction(
+  postId: string,
+): Promise<PostListItem[]> {
+  if (!postId) return [];
+  return getSimilarPosts(postId, 12);
 }

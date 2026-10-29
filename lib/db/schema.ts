@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { getTableColumns, sql } from "drizzle-orm";
 import type { PaletteColor } from "@/lib/media/colors";
 import {
   boolean,
@@ -12,6 +12,7 @@ import {
   timestamp,
   uniqueIndex,
   varchar,
+  vector,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -100,6 +101,8 @@ export const posts = pgTable(
     interaction: varchar("interaction", { length: 80 }),
     /** Generated tsvector for FTS across title + caption + creator refs. */
     searchTokens: text("search_tokens"),
+    /** 2048-dim multimodal embedding (admin/OpenRouter). Never select in public lists. */
+    embedding: vector("embedding", { dimensions: 2048 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -110,8 +113,17 @@ export const posts = pgTable(
     index("posts_published_idx").on(t.published),
     index("posts_featured_idx").on(t.featured),
     index("posts_hidden_gem_idx").on(t.hiddenGem),
+    index("posts_embedding_hnsw_idx").using(
+      "hnsw",
+      sql`("embedding"::halfvec(2048)) halfvec_cosine_ops`,
+    ),
   ],
 );
+
+const { embedding: _, ...postPublicColumnSet } = getTableColumns(posts);
+/** Post columns safe for public selects — omits the 2048-dim embedding. */
+export const postPublicColumns = postPublicColumnSet;
+export type PostPublic = Omit<typeof posts.$inferSelect, "embedding">;
 
 export const media = pgTable(
   "media",
@@ -275,6 +287,40 @@ export type PostIndustry = typeof postIndustries.$inferSelect;
 export type Style = typeof styles.$inferSelect;
 export type NewStyle = typeof styles.$inferInsert;
 export type PostStyle = typeof postStyles.$inferSelect;
+
+/**
+ * Jev (TypeSafe System One) classification snapshot for a post.
+ * Applied tags replace previous category/style/industry/element rows.
+ */
+export const jevClassifications = pgTable("jev_classifications", {
+  postId: text("post_id")
+    .primaryKey()
+    .references(() => posts.id, { onDelete: "cascade" }),
+  classifiedAt: timestamp("classified_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  isUi: boolean("is_ui").notNull(),
+  isUiProbability: integer("is_ui_probability").notNull().default(0),
+  categorySlug: varchar("category_slug", { length: 100 }),
+  styleSlug: varchar("style_slug", { length: 100 }),
+  industrySlug: varchar("industry_slug", { length: 100 }),
+  elementSlug: varchar("element_slug", { length: 100 }),
+  applied: jsonb("applied")
+    .$type<{
+      category?: boolean;
+      style?: boolean;
+      industry?: boolean;
+      element?: boolean;
+    }>()
+    .notNull()
+    .default({}),
+  model: varchar("model", { length: 80 }).notNull().default("jev-latest"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type JevClassification = typeof jevClassifications.$inferSelect;
 
 /** Ambient SQL fragment for FTS — used when we add a generated column via SQL migration. */
 export const postSearchExpression = sql`

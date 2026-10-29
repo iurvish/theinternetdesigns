@@ -1,6 +1,10 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { PostGrid, PostGridSkeleton } from "@/features/posts/post-grid";
-import { searchPosts, searchPostsByColors } from "@/features/posts/queries";
+import { searchPostsByColors, searchDesigns } from "@/features/posts/queries";
+import { interpretationChips } from "@/lib/jev/interpret-search";
+import { SiteHeader } from "@/components/layout/site-header";
+import { Badge } from "@/components/ui/badge";
 
 /** `#rrggbb` values, comma-separated in the URL. */
 function parseColors(raw: string | undefined): string[] {
@@ -22,6 +26,8 @@ export default async function SearchPage({
   const byColor = colors.length > 0;
 
   return (
+    <>
+      <SiteHeader />
     <div className="mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-6">
       <div className="mb-8 flex flex-col gap-2">
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -52,6 +58,7 @@ export default async function SearchPage({
         <Results q={q} colors={colors} />
       </Suspense>
     </div>
+    </>
   );
 }
 
@@ -61,8 +68,29 @@ async function Results({ q, colors }: { q: string; colors: string[] }) {
     return <PostGrid posts={posts} />;
   }
   if (!q) return null;
-  const posts = await searchPosts(q, { limit: 120 });
-  return <PostGrid posts={posts} />;
+  const { posts, interpretation } = await searchDesigns(q, { limit: 120 });
+  const chips = interpretationChips(interpretation);
+  return (
+    <div className="flex flex-col gap-6">
+      {chips.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">Showing</span>
+          {chips.map((chip) =>
+            chip.href ? (
+              <Link key={chip.label} href={chip.href}>
+                <Badge variant="secondary">{chip.label}</Badge>
+              </Link>
+            ) : (
+              <Badge key={chip.label} variant="secondary">
+                {chip.label}
+              </Badge>
+            ),
+          )}
+        </div>
+      ) : null}
+      <PostGrid posts={posts} />
+    </div>
+  );
 }
 
 export const metadata = { title: "Search" };
