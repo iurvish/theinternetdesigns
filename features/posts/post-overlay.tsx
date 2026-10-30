@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { ChevronDown, ExternalLink, Sparkles } from "lucide-react";
+import { ChevronDown, ExternalLink } from "lucide-react";
 import type { PostListItem } from "./queries";
 import { cn } from "@/lib/utils";
 import { OverlayMediaNav, overlayNavLabels } from "./media-nav-pill";
@@ -57,6 +57,42 @@ const FRAME_SHADOW =
 // "card still flying home" after the overlay has visually closed.
 const CLOSE_FADE = { duration: 0.42, ease: [0.33, 0, 0.2, 1] } as const;
 
+/**
+ * Similar designs, cached per post for the life of the JS realm.
+ *
+ * The server side of this is now an in-memory lookup, so the only latency left
+ * is the server-action round trip itself. Caching the answer and prefetching
+ * the neighbours the arrow keys will reach makes reopening a post — and moving
+ * between them — paint with no request at all.
+ */
+const similarCache = new Map<string, PostListItem[]>();
+const EMPTY_SIMILAR: PostListItem[] = [];
+const similarInflight = new Map<string, Promise<PostListItem[]>>();
+
+function loadSimilar(postId: string): Promise<PostListItem[]> {
+  const cached = similarCache.get(postId);
+  if (cached) return Promise.resolve(cached);
+  const existing = similarInflight.get(postId);
+  if (existing) return existing;
+  const pending = loadSimilarPostsAction(postId)
+    .then((rows) => {
+      similarCache.set(postId, rows);
+      return rows;
+    })
+    .catch(() => [] as PostListItem[])
+    .finally(() => {
+      similarInflight.delete(postId);
+    });
+  similarInflight.set(postId, pending);
+  return pending;
+}
+
+/** Warm a post's strip without rendering it. */
+function prefetchSimilar(postId: string | undefined) {
+  if (!postId || similarCache.has(postId)) return;
+  void loadSimilar(postId);
+}
+
 type MediaItem = PostListItem["images"][number];
 
 export function PostOverlay({
@@ -82,7 +118,14 @@ export function PostOverlay({
   const feedPost = posts[index];
   const [guestPost, setGuestPost] = useState<PostListItem | null>(null);
   const post = guestPost ?? feedPost;
-  const [similar, setSimilar] = useState<PostListItem[]>([]);
+  const [fetchedSimilar, setFetchedSimilar] = useState<{
+    id: string;
+    posts: PostListItem[];
+  } | null>(null);
+  // Cache first, then this post's own fetch — never a previous post's rows.
+  const similar: PostListItem[] =
+    (post?.id ? similarCache.get(post.id) : undefined) ??
+    (fetchedSimilar?.id === post?.id ? fetchedSimilar.posts : EMPTY_SIMILAR);
   const similarRef = useRef<HTMLElement>(null);
   // Drives the "scroll" nudge on the similar bar — it stops nagging once the
   // person has actually scrolled, since by then the strip speaks for itself.
@@ -163,23 +206,30 @@ export function PostOverlay({
   }, []);
 
   useEffect(() => {
-    if (!post?.id) {
-      setSimilar([]);
-      return;
-    }
+    const id = post?.id;
+    // Nothing to do when the answer is already cached — it is read during
+    // render below, so the strip paints in the same frame as the overlay with
+    // no flash of the empty state on reopen.
+    if (!id || similarCache.has(id)) return;
     let cancelled = false;
-    setSimilar([]);
-    loadSimilarPostsAction(post.id)
-      .then((rows) => {
-        if (!cancelled) setSimilar(rows);
-      })
-      .catch(() => {
-        if (!cancelled) setSimilar([]);
-      });
+    loadSimilar(id).then((rows) => {
+      if (!cancelled) setFetchedSimilar({ id, posts: rows });
+    });
     return () => {
       cancelled = true;
     };
   }, [post?.id]);
+
+  // The arrow keys and the peeked neighbours both land on index ± 1, so warm
+  // those two while the person is looking at this one.
+  useEffect(() => {
+    if (guestPost) return;
+    const warm = window.setTimeout(() => {
+      prefetchSimilar(posts[index - 1]?.id);
+      prefetchSimilar(posts[index + 1]?.id);
+    }, 300);
+    return () => window.clearTimeout(warm);
+  }, [posts, index, guestPost]);
 
   useLayoutEffect(() => {
     stageRef.current?.scrollTo({ top: 0 });
@@ -616,11 +666,6 @@ export function PostOverlay({
               // is open, so a white-on-white pairing is one pale screenshot away.
               className="mb-3 flex w-full items-center gap-2 rounded-xl bg-[#1f2123]/60 px-3 py-2.5 text-left ring-1 ring-inset ring-white/15 backdrop-blur-md transition-colors duration-200 hover:bg-[#1f2123]/72 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
-              <Sparkles
-                className="size-4 shrink-0 text-white/75"
-                strokeWidth={1.8}
-                aria-hidden
-              />
               <span className="text-[13px] font-medium tracking-tight text-white">
                 More designs like this
               </span>

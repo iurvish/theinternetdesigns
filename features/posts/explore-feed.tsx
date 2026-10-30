@@ -45,6 +45,18 @@ type FeedPageCache = { posts: PostListItem[]; hasMore: boolean };
 /** Survives ExploreFeed remounts within the same JS realm (soft navigations). */
 const feedPageCache = new Map<string, FeedPageCache>();
 const feedInflight = new Map<string, Promise<FeedPageCache>>();
+
+/**
+ * Committed search and colour results, keyed the same way the stale-response
+ * guards key them. Both actions are in-memory lookups on the server now, so
+ * what's left to remove is the round trip — going back to a search you already
+ * ran repaints the grid with no request.
+ */
+const searchResultCache = new Map<
+  string,
+  { posts: PostListItem[]; chips: string[] }
+>();
+const colorResultCache = new Map<string, PostListItem[]>();
 const DEFAULT_FILTER_KEY = "all|recent";
 const EMPTY_POSTS: PostListItem[] = [];
 
@@ -501,11 +513,17 @@ function FeedBody({
     posts: PostListItem[];
   } | null>(null);
 
+  // A cached key is read during render rather than pushed through state, so
+  // revisiting a colour repaints in the same frame without a render cascade.
+  const cachedColorPosts = colorResultCache.get(colorKey) ?? null;
+
   useEffect(() => {
     if (colors.length === 0) return;
-    let cancelled = false;
     const key = colorKey;
+    if (colorResultCache.has(key)) return;
+    let cancelled = false;
     searchByColorsAction(colors).then((res) => {
+      colorResultCache.set(key, res);
       if (!cancelled) setColorResult({ key, posts: res });
     });
     return () => {
@@ -523,11 +541,15 @@ function FeedBody({
     chips: string[];
   } | null>(null);
 
+  const cachedSearch = searchResultCache.get(activeSearchKey) ?? null;
+
   useEffect(() => {
     if (!search) return;
-    let cancelled = false;
     const key = activeSearchKey;
+    if (searchResultCache.has(key)) return;
+    let cancelled = false;
     runSearchAction(search).then((res) => {
+      searchResultCache.set(key, { posts: res.posts, chips: res.chips });
       if (!cancelled) {
         setSearchResult({ key, posts: res.posts, chips: res.chips });
       }
@@ -653,14 +675,20 @@ function FeedBody({
   }, [loadMore, colors.length, search, feedPosts.length, hasMore]);
 
   const colorActive = colors.length > 0;
-  const colorReady = colorActive && colorResult?.key === colorKey;
+  const colorReady =
+    colorActive && (cachedColorPosts !== null || colorResult?.key === colorKey);
   const colorLoading = colorActive && !colorReady;
-  const colorPosts = colorReady ? colorResult!.posts : null;
+  const colorPosts = colorReady
+    ? (cachedColorPosts ?? colorResult!.posts)
+    : null;
 
   const searchActive = search !== null;
-  const searchReady = searchActive && searchResult?.key === activeSearchKey;
+  const searchReady =
+    searchActive && (cachedSearch !== null || searchResult?.key === activeSearchKey);
   const searchLoading = searchActive && !searchReady;
-  const searchPosts = searchReady ? searchResult!.posts : null;
+  const searchPosts = searchReady
+    ? (cachedSearch?.posts ?? searchResult!.posts)
+    : null;
 
   const refreshing = colorLoading || searchLoading || feedBootstrapping;
   // Both replace-the-grid modes page their whole result set in one request.
@@ -784,7 +812,11 @@ function FeedBody({
             <ResultsBar
               search={search}
               count={searchReady ? visible.length : null}
-              chips={searchReady ? (searchResult?.chips ?? []) : []}
+              chips={
+                searchReady
+                  ? (cachedSearch?.chips ?? searchResult?.chips ?? [])
+                  : []
+              }
               onClear={onClearSearch}
               onEdit={onEditSearch}
             />

@@ -1,34 +1,23 @@
 import "server-only";
 import { cache } from "react";
-import { unstable_cache } from "next/cache";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   categories,
   creators,
-  industries,
   media,
   postCategories,
-  postIndustries,
-  postPublicColumns,
-  postStyles,
   posts,
-  styles,
-  type PostPublic,
 } from "@/lib/db/schema";
 import {
-  interpretSearchQuery,
+  interpretationFromTerms,
   type SearchInterpretation,
 } from "@/lib/jev/interpret-search";
-import {
-  bestPaletteDistance,
-  hexToHsl,
-  type Hsl,
-} from "@/lib/media/color-utils";
-import type { PaletteColor } from "@/lib/media/colors";
+import { colorMatchDistance, hexToHsl, type Hsl } from "@/lib/media/color-utils";
 import { cleanCaptionForDisplay } from "@/lib/providers/tweet/clean-caption";
-import { searchSimilarHits } from "@/lib/db/similar-posts";
-import { facetPostIds } from "./search-facets";
+import { getCorpusIndex } from "@/lib/corpus";
+import { searchCorpus } from "@/lib/corpus/search";
+import { similarCorpusPosts } from "@/lib/corpus/similar";
 import type { FacetKind } from "./search-filter";
 
 export type FeedSort = "recent" | "oldest" | "featured" | "hidden_gems";
@@ -80,6 +69,13 @@ export type PostListItem = {
 };
 
 /**
+ * Every list read on this site is served from the in-memory corpus snapshot
+ * (`lib/corpus`) rather than a per-request query. See the note at the top of
+ * `lib/corpus/snapshot.ts` for why: round-trips, not query time, were the whole
+ * cost here.
+ */
+
+/**
  * Creators have no page of their own — every avatar/name links straight out to the
  * source network, falling back to the X handle when no profile URL was captured.
  */
@@ -90,95 +86,6 @@ export function creatorProfileUrl(
   return creator?.username ? `https://x.com/${creator.username}` : null;
 }
 
-/** Small shape shared by list/grid views. */
-async function loadPostsWithRelations(postRows: PostPublic[]) {
-  if (postRows.length === 0) return [];
-  const ids = postRows.map((p) => p.id);
-  const creatorIds = Array.from(new Set(postRows.map((p) => p.creatorId)));
-
-  const [creatorRows, mediaRows, catRows] = await Promise.all([
-    db.select().from(creators).where(inArray(creators.id, creatorIds)),
-    db
-      .select()
-      .from(media)
-      .where(inArray(media.postId, ids))
-      .orderBy(media.position),
-    db
-      .select({
-        postId: postCategories.postId,
-        slug: categories.slug,
-        name: categories.name,
-      })
-      .from(postCategories)
-      .innerJoin(categories, eq(categories.id, postCategories.categoryId))
-      .where(inArray(postCategories.postId, ids)),
-  ]);
-
-  const creatorById = new Map(creatorRows.map((c) => [c.id, c]));
-  const mediaByPost = new Map<string, typeof mediaRows>();
-  for (const m of mediaRows) {
-    const arr = mediaByPost.get(m.postId) ?? [];
-    arr.push(m);
-    mediaByPost.set(m.postId, arr);
-  }
-  const catsByPost = new Map<string, { slug: string; name: string }[]>();
-  for (const row of catRows) {
-    const arr = catsByPost.get(row.postId) ?? [];
-    arr.push({ slug: row.slug, name: row.name });
-    catsByPost.set(row.postId, arr);
-  }
-
-  return postRows.map<PostListItem>((p) => {
-    const c = creatorById.get(p.creatorId);
-    const postMedia = mediaByPost.get(p.id) ?? [];
-    const thumb = postMedia[0];
-    const colorSet = new Set<string>();
-    for (const m of postMedia) {
-      for (const swatch of m.colors ?? []) {
-        if (swatch?.hex) colorSet.add(swatch.hex.toLowerCase());
-        if (colorSet.size >= 6) break;
-      }
-      if (colorSet.size >= 6) break;
-    }
-    return {
-      id: p.id,
-      title: p.title,
-      // Strip trailing media t.co so SSR/client alt text and captions match.
-      caption: p.caption ? cleanCaptionForDisplay(p.caption) || null : null,
-      sourceUrl: p.sourceUrl,
-      source: p.source,
-      hasVideo: p.hasVideo,
-      autoplayInFeed: p.autoplayInFeed,
-      imageCount: p.imageCount,
-      publishedAt: p.publishedAt,
-      interaction: p.interaction ?? null,
-      colors: Array.from(colorSet),
-      creator: {
-        username: c?.username ?? "",
-        displayName: c?.displayName ?? "",
-        avatarUrl: c?.avatarUrl ?? null,
-        profileUrl: creatorProfileUrl(c),
-      },
-      thumbnail: thumb
-        ? {
-            url: thumb.thumbnailUrl ?? thumb.mediumUrl ?? thumb.originalUrl,
-            width: thumb.width,
-            height: thumb.height,
-          }
-        : null,
-      images: postMedia.map((m) => ({
-        id: m.id,
-        url: m.mediumUrl ?? m.originalUrl,
-        posterUrl: m.posterUrl ?? m.thumbnailUrl,
-        kind: m.kind,
-        width: m.width,
-        height: m.height,
-      })),
-      categories: catsByPost.get(p.id) ?? [],
-    };
-  });
-}
-
 export async function getRecentPosts(
   opts: {
     limit?: number;
@@ -186,168 +93,50 @@ export async function getRecentPosts(
     category?: string | null;
     sort?: FeedSort;
   } = {},
-) {
+): Promise<PostListItem[]> {
   const limit = opts.limit ?? 24;
-  const offset = opts.offset ?? 0;
+  const offset = Math.max(0, opts.offset ?? 0);
   const sort = opts.sort ?? "recent";
-  const sortDir = sort === "oldest" ? asc : desc;
-  // Gallery "Recently" = newest additions first (createdAt), not the source
-  // tweet/pin date — otherwise old X posts land at the bottom when published.
-  const order = [sortDir(posts.createdAt), sortDir(posts.publishedAt)] as const;
 
-  const flagFilter =
-    sort === "featured"
-      ? eq(posts.featured, true)
-      : sort === "hidden_gems"
-        ? eq(posts.hiddenGem, true)
-        : undefined;
+  try {
+    const index = await getCorpusIndex();
+    // Gallery "Recently" = newest additions first (createdAt), not the source
+    // tweet/pin date — otherwise old X posts land at the bottom when published.
+    let order =
+      sort === "oldest"
+        ? index.oldest
+        : sort === "featured"
+          ? index.featured
+          : sort === "hidden_gems"
+            ? index.hiddenGems
+            : index.recent;
 
-  const baseWhere = flagFilter
-    ? and(eq(posts.published, true), flagFilter)
-    : eq(posts.published, true);
+    if (opts.category && opts.category !== "all") {
+      const inCategory = index.byFacet.category.get(opts.category);
+      if (!inCategory) return [];
+      const allowed = new Set(inCategory);
+      order = order.filter((position) => allowed.has(position));
+    }
 
-  let rows: PostPublic[];
-  if (opts.category && opts.category !== "all") {
-    rows = await db
-      .select({ post: postPublicColumns })
-      .from(posts)
-      .innerJoin(postCategories, eq(postCategories.postId, posts.id))
-      .innerJoin(categories, eq(categories.id, postCategories.categoryId))
-      .where(and(baseWhere, eq(categories.slug, opts.category)))
-      .orderBy(...order)
-      .limit(limit)
-      .offset(offset)
-      .then((r) => r.map((row) => row.post));
-  } else {
-    rows = await db
-      .select(postPublicColumns)
-      .from(posts)
-      .where(baseWhere)
-      .orderBy(...order)
-      .limit(limit)
-      .offset(offset);
+    return order
+      .slice(offset, offset + limit)
+      .map((position) => index.cards[position]!);
+  } catch {
+    // The feed is the first thing on the page; a cold or unreachable snapshot
+    // falls back to a direct read rather than rendering an empty gallery.
+    return feedPageFallback(limit, offset, opts.category ?? null);
   }
-  return loadPostsWithRelations(rows);
 }
 
-export async function getPostsByCategory(slug: string, opts: { limit?: number } = {}) {
-  const limit = opts.limit ?? 60;
-  const rows = await db
-    .select({ post: postPublicColumns })
-    .from(posts)
-    .innerJoin(postCategories, eq(postCategories.postId, posts.id))
-    .innerJoin(categories, eq(categories.id, postCategories.categoryId))
-    .where(and(eq(categories.slug, slug), eq(posts.published, true)))
-    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
-    .limit(limit);
-  return loadPostsWithRelations(rows.map((r) => r.post));
-}
-
-async function ftsPostIds(query: string, limit: number): Promise<string[]> {
-  const idRows = await db.execute<{ id: string }>(sql`
-    select p.id from ${posts} p
-    inner join ${creators} c on c.id = p.creator_id
-    where p.published = true
-      and (
-        p.search_tsv @@ plainto_tsquery('english', ${query})
-        or c.username ilike ${"%" + query + "%"}
-        or c.display_name ilike ${"%" + query + "%"}
-      )
-    order by
-      ts_rank_cd(p.search_tsv, plainto_tsquery('english', ${query})) desc,
-      p.published_at desc nulls last
-    limit ${limit}
-  `);
-  return asIdList(idRows);
-}
-
-function asIdList(result: unknown): string[] {
-  const rows = Array.isArray(result)
-    ? result
-    : result && typeof result === "object" && "rows" in result
-      ? (result as { rows: { id: string }[] }).rows
-      : [];
-  return rows.map((r) => r.id);
-}
-
-async function idsByCategory(slug: string, limit: number): Promise<string[]> {
-  const rows = await db
-    .select({ id: posts.id })
-    .from(posts)
-    .innerJoin(postCategories, eq(postCategories.postId, posts.id))
-    .innerJoin(categories, eq(categories.id, postCategories.categoryId))
-    .where(and(eq(posts.published, true), eq(categories.slug, slug)))
-    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
-    .limit(limit);
-  return rows.map((r) => r.id);
-}
-
-async function idsByStyle(slug: string, limit: number): Promise<string[]> {
-  const rows = await db
-    .select({ id: posts.id })
-    .from(posts)
-    .innerJoin(postStyles, eq(postStyles.postId, posts.id))
-    .innerJoin(styles, eq(styles.id, postStyles.styleId))
-    .where(and(eq(posts.published, true), eq(styles.slug, slug)))
-    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
-    .limit(limit);
-  return rows.map((r) => r.id);
-}
-
-async function idsByIndustry(slug: string, limit: number): Promise<string[]> {
-  const rows = await db
-    .select({ id: posts.id })
-    .from(posts)
-    .innerJoin(postIndustries, eq(postIndustries.postId, posts.id))
-    .innerJoin(industries, eq(industries.id, postIndustries.industryId))
-    .where(and(eq(posts.published, true), eq(industries.slug, slug)))
-    .orderBy(desc(posts.createdAt), desc(posts.publishedAt))
-    .limit(limit);
-  return rows.map((r) => r.id);
-}
-
-async function idsByElement(slug: string, limit: number): Promise<string[]> {
-  const idRows = await db.execute<{ id: string }>(sql`
-    select p.id
-    from ${posts} p
-    inner join post_elements pe on pe.post_id = p.id
-    inner join elements e on e.id = pe.element_id
-    where p.published = true
-      and e.slug = ${slug}
-    order by p.created_at desc
-    limit ${limit}
-  `);
-  return asIdList(idRows);
-}
-
-function intersect(lists: string[][]): string[] {
-  if (lists.length === 0) return [];
-  const [first, ...rest] = lists;
-  if (!first) return [];
-  const sets = rest.map((list) => new Set(list));
-  return first.filter((id) => sets.every((set) => set.has(id)));
-}
-
-function rankMergedIds(opts: {
-  hard: string[][];
-  boost: Set<string>;
-  fts: string[];
-  limit: number;
-}): string[] {
-  const hardIds = opts.hard.length > 0 ? intersect(opts.hard) : [];
-  const seen = new Set<string>();
-  const ranked: string[] = [];
-  const push = (id: string) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    ranked.push(id);
-  };
-  for (const id of hardIds) {
-    if (opts.boost.has(id)) push(id);
-  }
-  for (const id of hardIds) push(id);
-  for (const id of opts.fts) push(id);
-  return ranked.slice(0, opts.limit);
+export async function getPostsByCategory(
+  slug: string,
+  opts: { limit?: number } = {},
+): Promise<PostListItem[]> {
+  const index = await getCorpusIndex();
+  const positions = index.byFacet.category.get(slug) ?? [];
+  return positions
+    .slice(0, opts.limit ?? 60)
+    .map((position) => index.cards[position]!);
 }
 
 export async function searchPosts(query: string, opts: { limit?: number } = {}) {
@@ -360,69 +149,14 @@ export async function searchDesigns(
   opts: { limit?: number } = {},
 ): Promise<{ posts: PostListItem[]; interpretation: SearchInterpretation }> {
   const q = query.trim();
-  const empty: SearchInterpretation = {
-    query: q,
-    intent: "unknown",
-    source: "none",
-  };
-  if (!q) return { posts: [], interpretation: empty };
-
-  const limit = opts.limit ?? 60;
-  const interpretation = await interpretSearchQuery(q);
-  const fts = await ftsPostIds(q, limit);
-
-  if (interpretation.intent === "creator") {
-    const postsFound = await loadPostsByIds(fts.slice(0, limit));
-    return { posts: postsFound, interpretation };
+  if (!q) {
+    return {
+      posts: [],
+      interpretation: { query: q, intent: "unknown", source: "none" },
+    };
   }
-
-  const hardLists: string[][] = [];
-  const boost = new Set<string>();
-  const pool = Math.max(limit * 4, 240);
-
-  if (interpretation.category) {
-    const ids = await idsByCategory(interpretation.category.slug, pool);
-    if (ids.length > 0) hardLists.push(ids);
-  }
-  if (interpretation.element) {
-    const ids = await idsByElement(interpretation.element.slug, pool);
-    if (ids.length > 0) hardLists.push(ids);
-  }
-  if (interpretation.style) {
-    const styleIds = await idsByStyle(interpretation.style.slug, pool);
-    if (styleIds.length > 0) {
-      if (hardLists.length === 0) hardLists.push(styleIds);
-      else styleIds.forEach((id) => boost.add(id));
-    }
-  }
-  if (interpretation.industry) {
-    const industryIds = await idsByIndustry(interpretation.industry.slug, pool);
-    if (industryIds.length > 0) {
-      if (hardLists.length === 0) hardLists.push(industryIds);
-      else industryIds.forEach((id) => boost.add(id));
-    }
-  }
-
-  const ids = rankMergedIds({
-    hard: hardLists,
-    boost,
-    fts,
-    limit,
-  });
-  return { posts: await loadPostsByIds(ids), interpretation };
-}
-
-async function loadPostsByIds(ids: string[]): Promise<PostListItem[]> {
-  if (ids.length === 0) return [];
-  const postRows = await db
-    .select(postPublicColumns)
-    .from(posts)
-    .where(inArray(posts.id, ids));
-  const byId = new Map(postRows.map((r) => [r.id, r]));
-  const ordered = ids
-    .map((id) => byId.get(id))
-    .filter((r): r is PostPublic => Boolean(r));
-  return loadPostsWithRelations(ordered);
+  const { resolved, posts: found } = await searchCorpus(q, opts.limit ?? 60);
+  return { posts: found, interpretation: interpretationFromTerms(q, resolved) };
 }
 
 /**
@@ -432,133 +166,274 @@ async function loadPostsByIds(ids: string[]): Promise<PostListItem[]> {
  *
  * Matching is inclusive: asking for grey + red returns posts using either. Posts
  * that hit more of the requested colours rank above single-colour matches.
+ *
+ * The palettes are already HSL in the index — this used to read every published
+ * post's swatches over the wire and convert ~6,000 of them per request.
  */
 export async function searchPostsByColors(
   hexes: string[],
   opts: { limit?: number } = {},
-) {
-  const targets = hexes
-    .map(hexToHsl)
-    .filter((c): c is Hsl => c !== null);
+): Promise<PostListItem[]> {
+  const targets = hexes.map(hexToHsl).filter((c): c is Hsl => c !== null);
   if (targets.length === 0) return [];
   const limit = opts.limit ?? 120;
+  const index = await getCorpusIndex();
 
-  // Pull every published post's palette swatches — small jsonb payloads, scored in
-  // JS so we can use proper HSL matching (SQL RGB distance was too crude).
-  const rows = await db.execute<{
-    id: string;
-    colors: PaletteColor[] | null;
-  }>(sql`
-    select p.id, m.colors
-    from ${posts} p
-    inner join ${media} m on m.post_id = p.id
-    where p.published = true
-  `);
-
-  const palettes = new Map<string, PaletteColor[]>();
-  for (const row of rows as unknown as { id: string; colors: PaletteColor[] | null }[]) {
-    const existing = palettes.get(row.id) ?? [];
-    if (Array.isArray(row.colors)) existing.push(...row.colors);
-    palettes.set(row.id, existing);
-  }
-
-  const scored: { id: string; hits: number; score: number }[] = [];
-  for (const [id, palette] of palettes) {
+  const scored: { position: number; hits: number; score: number }[] = [];
+  for (let position = 0; position < index.palettes.length; position++) {
+    const palette = index.palettes[position]!;
     if (palette.length === 0) continue;
     let hits = 0;
     let total = 0;
     for (const target of targets) {
-      const d = bestPaletteDistance(target, palette);
-      if (d == null) continue;
+      let best: number | null = null;
+      for (const swatch of palette) {
+        const dist = colorMatchDistance(target, swatch);
+        if (dist == null) continue;
+        // Slight boost for dominant colours (percent 0–100 → weight 0.75–1.25).
+        const weight = 1.25 - Math.min(Math.max(swatch.percent, 0), 100) / 200;
+        const scoredDist = dist * weight;
+        if (best == null || scoredDist < best) best = scoredDist;
+      }
+      if (best == null) continue;
       hits++;
-      total += d;
+      total += best;
     }
-    if (hits > 0) scored.push({ id, hits, score: total / hits });
+    if (hits > 0) scored.push({ position, hits, score: total / hits });
   }
 
   // More requested colours matched wins; ties break on how close the match is.
-  scored.sort((a, b) => (b.hits - a.hits) || (a.score - b.score));
-  const ids = scored.slice(0, limit).map((s) => s.id);
-  if (ids.length === 0) return [];
-
-  const postRows = await db
-    .select(postPublicColumns)
-    .from(posts)
-    .where(inArray(posts.id, ids));
-  const byId = new Map(postRows.map((r) => [r.id, r]));
-  const ordered = ids
-    .map((id) => byId.get(id))
-    .filter((r): r is PostPublic => Boolean(r));
-  return loadPostsWithRelations(ordered);
+  scored.sort((a, b) => b.hits - a.hits || a.score - b.score);
+  return scored.slice(0, limit).map((s) => index.cards[s.position]!);
 }
 
+/**
+ * The detail page's post, creator, media and categories.
+ *
+ * Served from the corpus when the post is published, which is every post the
+ * public site links to — that is the whole page's data in zero round-trips.
+ * The direct read stays as the fallback so a draft reached by its URL still
+ * renders exactly as it did before.
+ */
 export const getPostById = cache(async (id: string) => {
+  const index = await getCorpusIndex();
+  const position = index.positionOf.get(id);
+  if (position != null) {
+    const post = index.posts[position]!;
+    return {
+      post: {
+        id: post.id,
+        title: post.title,
+        caption: post.caption,
+        sourceUrl: post.sourceUrl,
+        source: post.source,
+        creatorId: null,
+        hasVideo: post.hasVideo,
+        imageCount: post.imageCount,
+        interaction: post.interaction,
+        publishedAt: post.publishedAt ? new Date(post.publishedAt) : null,
+        createdAt: new Date(post.createdAt),
+      },
+      creator: {
+        username: post.creator.username,
+        displayName: post.creator.displayName,
+        avatarUrl: post.creator.avatarUrl,
+        profileUrl: post.creator.profileUrl,
+      },
+      media: post.media.map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        originalUrl: m.originalUrl,
+        mediumUrl: m.mediumUrl,
+        thumbnailUrl: m.thumbnailUrl,
+        posterUrl: m.posterUrl,
+        width: m.width,
+        height: m.height,
+        colors: m.colors,
+      })),
+      categories: post.categories,
+    };
+  }
+  return getPostByIdUncached(id);
+});
+
+async function getPostByIdUncached(id: string) {
   const [row] = await db
-    .select(postPublicColumns)
+    .select({
+      id: posts.id,
+      title: posts.title,
+      caption: posts.caption,
+      sourceUrl: posts.sourceUrl,
+      source: posts.source,
+      creatorId: posts.creatorId,
+      hasVideo: posts.hasVideo,
+      imageCount: posts.imageCount,
+      interaction: posts.interaction,
+      publishedAt: posts.publishedAt,
+      createdAt: posts.createdAt,
+    })
     .from(posts)
     .where(eq(posts.id, id))
     .limit(1);
   if (!row) return null;
   const [creator, mediaRows, catRows] = await Promise.all([
     db.select().from(creators).where(eq(creators.id, row.creatorId)).limit(1),
-    db
-      .select()
-      .from(media)
-      .where(eq(media.postId, id))
-      .orderBy(media.position),
+    db.select().from(media).where(eq(media.postId, id)).orderBy(media.position),
     db
       .select({ slug: categories.slug, name: categories.name })
       .from(postCategories)
       .innerJoin(categories, eq(categories.id, postCategories.categoryId))
       .where(eq(postCategories.postId, id)),
   ]);
+  const c = creator[0];
+  if (!c) return null;
   return {
     post: row,
-    creator: creator[0] ?? null,
-    media: mediaRows,
+    creator: {
+      username: c.username,
+      displayName: c.displayName,
+      avatarUrl: c.avatarUrl,
+      profileUrl: c.profileUrl,
+    },
+    media: mediaRows.map((m) => ({
+      id: m.id,
+      kind: m.kind,
+      originalUrl: m.originalUrl,
+      mediumUrl: m.mediumUrl,
+      thumbnailUrl: m.thumbnailUrl,
+      posterUrl: m.posterUrl,
+      width: m.width,
+      height: m.height,
+      colors: m.colors ?? [],
+    })),
     categories: catRows,
   };
-});
+}
 
-/**
- * Full feed-card posts nearest to `postId` — used by the overlay lightbox.
- *
- * Cached for the same hour as the post page's version: the hit search runs a
- * pgvector scan, six metadata reads and a Jev rerank, which is ~2.5s of work to
- * repeat every time someone opens the same design.
- */
-export const getSimilarPosts = (postId: string, limit = 12) =>
-  unstable_cache(
-    () => similarPostsUncached(postId, limit),
-    ["overlay-similar-posts-v1", postId, String(limit)],
-    { revalidate: 3600 },
-  )();
-
-async function similarPostsUncached(postId: string, limit: number) {
-  const hits = await searchSimilarHits({ postId, limit });
-  if (hits.length === 0) return [];
-  const ids = hits.map((h) => h.id);
-  const postRows = await db
-    .select(postPublicColumns)
-    .from(posts)
-    .where(inArray(posts.id, ids));
-  const byId = new Map(postRows.map((r) => [r.id, r]));
-  const ordered = ids
-    .map((id) => byId.get(id))
-    .filter((r): r is PostPublic => Boolean(r));
-  return loadPostsWithRelations(ordered);
+/** Full feed-card posts nearest to `postId` — used by the overlay lightbox. */
+export async function getSimilarPosts(
+  postId: string,
+  limit = 12,
+): Promise<PostListItem[]> {
+  const { index, hits } = await similarCorpusPosts(postId, limit);
+  return hits.map((hit) => index.cards[hit.position]!);
 }
 
 /**
  * Feed cards for one browse tag (category / element / style / industry).
- * Powers the palette's "show these designs" commit — no Jev hop, since the
- * person picked the tag themselves.
+ * Powers the palette's "show these designs" commit.
  */
 export async function getPostsByFacet(
   kind: FacetKind,
   slug: string,
   opts: { limit?: number } = {},
 ): Promise<PostListItem[]> {
-  const ids = await facetPostIds(kind, slug, opts.limit ?? 120);
-  return loadPostsByIds(ids);
+  const index = await getCorpusIndex();
+  const positions = index.byFacet[kind].get(slug) ?? [];
+  return positions
+    .slice(0, opts.limit ?? 120)
+    .map((position) => index.cards[position]!);
+}
+
+type FallbackRow = {
+  id: string;
+  title: string | null;
+  caption: string | null;
+  sourceUrl: string;
+  source: PostListItem["source"];
+  hasVideo: boolean;
+  autoplayInFeed: boolean;
+  imageCount: number;
+  publishedAt: string | null;
+  interaction: string | null;
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  profileUrl: string | null;
+  thumbUrl: string | null;
+  thumbWidth: number | null;
+  thumbHeight: number | null;
+};
+
+/** Minimal newest-first page, for when the snapshot isn't available. */
+async function feedPageFallback(
+  limit: number,
+  offset: number,
+  category: string | null,
+): Promise<PostListItem[]> {
+  const categoryFilter =
+    category && category !== "all"
+      ? sql`and exists (
+          select 1 from ${postCategories} pc
+          join ${categories} c on c.id = pc.category_id
+          where pc.post_id = p.id and c.slug = ${category}
+        )`
+      : sql``;
+
+  const result = await db.execute(sql`
+    select
+      p.id, p.title, p.caption, p.source_url as "sourceUrl", p.source,
+      p.has_video as "hasVideo", p.autoplay_in_feed as "autoplayInFeed",
+      p.image_count as "imageCount", p.published_at as "publishedAt",
+      p.interaction,
+      cr.username, cr.display_name as "displayName",
+      cr.avatar_url as "avatarUrl", cr.profile_url as "profileUrl",
+      m.thumb_url as "thumbUrl", m.width as "thumbWidth", m.height as "thumbHeight"
+    from ${posts} p
+    join ${creators} cr on cr.id = p.creator_id
+    left join lateral (
+      select coalesce(mm.thumbnail_url, mm.medium_url, mm.original_url) as thumb_url,
+             mm.width, mm.height
+      from ${media} mm where mm.post_id = p.id
+      order by mm.position asc limit 1
+    ) m on true
+    where p.published = true
+    ${categoryFilter}
+    order by p.created_at desc, p.published_at desc nulls last
+    limit ${limit} offset ${offset}
+  `);
+
+  const raw: unknown = result;
+  const rows: FallbackRow[] = Array.isArray(raw)
+    ? (raw as FallbackRow[])
+    : (((raw as { rows?: FallbackRow[] }).rows) ?? []);
+
+  return rows.map<PostListItem>((row) => ({
+    id: row.id,
+    title: row.title,
+    caption: row.caption ? cleanCaptionForDisplay(row.caption) || null : null,
+    sourceUrl: row.sourceUrl,
+    source: row.source,
+    hasVideo: Boolean(row.hasVideo),
+    autoplayInFeed: Boolean(row.autoplayInFeed),
+    imageCount: Number(row.imageCount) || 0,
+    publishedAt: row.publishedAt ? new Date(row.publishedAt) : null,
+    interaction: row.interaction,
+    colors: [],
+    creator: {
+      username: row.username ?? "",
+      displayName: row.displayName ?? "",
+      avatarUrl: row.avatarUrl ?? null,
+      profileUrl: creatorProfileUrl({
+        profileUrl: row.profileUrl,
+        username: row.username,
+      }),
+    },
+    thumbnail: row.thumbUrl
+      ? { url: row.thumbUrl, width: row.thumbWidth, height: row.thumbHeight }
+      : null,
+    images: row.thumbUrl
+      ? [
+          {
+            id: null,
+            url: row.thumbUrl,
+            posterUrl: null,
+            kind: "image",
+            width: row.thumbWidth,
+            height: row.thumbHeight,
+          },
+        ]
+      : [],
+    categories: [],
+  }));
 }
