@@ -1,4 +1,4 @@
-import { getTableColumns, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { PaletteColor } from "@/lib/media/colors";
 import {
   boolean,
@@ -119,11 +119,6 @@ export const posts = pgTable(
     ),
   ],
 );
-
-const { embedding: _, ...postPublicColumnSet } = getTableColumns(posts);
-/** Post columns safe for public selects — omits the 2048-dim embedding. */
-export const postPublicColumns = postPublicColumnSet;
-export type PostPublic = Omit<typeof posts.$inferSelect, "embedding">;
 
 export const media = pgTable(
   "media",

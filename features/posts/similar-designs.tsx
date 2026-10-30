@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
 import type { SimilarPostItem } from "@/lib/db/similar-posts";
 import { cn } from "@/lib/utils";
 import type { PostListItem } from "./queries";
@@ -46,11 +45,6 @@ export function SimilarDesigns({ posts }: { posts: SimilarPostItem[] }) {
       {/* Label the strip before it scrolls into view — "more like this" is the
           reason to keep going, so it reads as an invitation, not a footer. */}
       <div className="flex items-center gap-2.5 border-b border-border/60 pb-3">
-        <Sparkles
-          className="size-4 shrink-0 text-muted-foreground"
-          strokeWidth={1.8}
-          aria-hidden
-        />
         <h2
           id="similar-designs-heading"
           className="text-[15px] font-medium tracking-tight text-foreground"
