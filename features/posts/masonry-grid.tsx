@@ -7,31 +7,41 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import type { PostListItem } from "./queries";
+import { WEBSITE_TILE_RATIO } from "./website-card";
 
 const SM = 640;
 const MD = 768;
+// Four columns only from `xl`. The sidebar costs the grid a fixed 264px from
+// `lg` up, so at 1024–1279 a fourth column would land under ~190px wide —
+// narrower than the three it replaces. Breakpoints stay viewport-based because
+// the sidebar's width is fixed, so the arithmetic is the same at every size.
+const XL = 1280;
 
 function getFeedColumnCount(): number {
   if (typeof window === "undefined") return 1;
   const w = window.innerWidth;
+  if (w >= XL) return 4;
   if (w >= MD) return 3;
   if (w >= SM) return 2;
   return 1;
 }
 
 function subscribeFeedColumns(onStoreChange: () => void) {
-  const mqSm = window.matchMedia(`(min-width: ${SM}px)`);
-  const mqMd = window.matchMedia(`(min-width: ${MD}px)`);
-  mqSm.addEventListener("change", onStoreChange);
-  mqMd.addEventListener("change", onStoreChange);
+  const queries = [SM, MD, XL].map((w) =>
+    window.matchMedia(`(min-width: ${w}px)`),
+  );
+  for (const mq of queries) mq.addEventListener("change", onStoreChange);
   return () => {
-    mqSm.removeEventListener("change", onStoreChange);
-    mqMd.removeEventListener("change", onStoreChange);
+    for (const mq of queries) mq.removeEventListener("change", onStoreChange);
   };
 }
 
 /** Width / height — matches MasonryCard fallbacks. */
 export function postAspectRatioValue(post: PostListItem, index: number): number {
+  // Website entries render a fixed-ratio tile plus an identity row, not the
+  // screenshot's own shape — bucket them on what actually gets drawn, or the
+  // column packing works from a height the card never has.
+  if (post.siteUrl) return WEBSITE_TILE_RATIO;
   if (post.thumbnail?.width && post.thumbnail?.height) {
     return post.thumbnail.width / post.thumbnail.height;
   }
@@ -118,9 +128,9 @@ export function MasonryGrid({
   columns: ReactNode[][];
 }) {
   return (
-    <div className={cn("flex w-full items-start gap-2.5", className)}>
+    <div className={cn("flex w-full items-start gap-5", className)}>
       {columns.slice(0, columnCount).map((items, i) => (
-        <div key={i} className="flex min-w-0 flex-1 flex-col gap-2.5">
+        <div key={i} className="flex min-w-0 flex-1 flex-col gap-5">
           {items}
         </div>
       ))}
@@ -140,5 +150,6 @@ export function useResponsiveMasonryBuckets(aspectRatios: number[]) {
   const one = useMasonryBuckets(aspectRatios, 1);
   const two = useMasonryBuckets(aspectRatios, 2);
   const three = useMasonryBuckets(aspectRatios, 3);
-  return { one, two, three };
+  const four = useMasonryBuckets(aspectRatios, 4);
+  return { one, two, three, four };
 }

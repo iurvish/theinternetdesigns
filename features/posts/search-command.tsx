@@ -42,11 +42,16 @@ import {
 /* ── shared paper tokens (match the toolbar chips) ──────────────────────── */
 
 /**
- * Same raised stack the sort control uses — the single-ring chip shadow read as
- * flat next to it, so the field looked unclickable.
+ * One control surface across the app: white, a real hairline, and a single
+ * soft shadow. The old six-layer Paper stack piled three rings on top of each
+ * other, which is what made a 2rem control look like a floating slab.
  */
-const CHIP_SHADOW =
-  "shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04),0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
+const CONTROL =
+  "border border-line-strong bg-panel shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]";
+
+/** Neutral, never brand-coloured, never removed. */
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/35";
 
 const PANEL_SHADOW =
   "shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_-1px_rgba(0,0,0,0.04),0_24px_48px_-12px_rgba(0,0,0,0.22),0_48px_96px_-24px_rgba(0,0,0,0.18)]";
@@ -251,13 +256,17 @@ export function SearchTrigger({
   onOpen,
   onClear,
   className,
+  size = "sm",
 }: {
   active: ActiveSearch | null;
   onOpen: () => void;
   onClear: () => void;
   className?: string;
+  /** `lg` is the mobile sheet, where this is a thumb target. */
+  size?: "sm" | "lg";
 }) {
   const mac = useIsMac();
+  const lg = size === "lg";
 
   // Warm the vocabulary after idle so the first open paints instantly.
   useEffect(() => {
@@ -269,7 +278,11 @@ export function SearchTrigger({
     <div
       // No `overflow-hidden` here: the segments round themselves, and clipping
       // the box would eat the raised shadow that makes the field look pressable.
-      className={cn("flex h-[38px] items-stretch gap-px rounded-xl", className)}
+      className={cn(
+        "flex w-full items-stretch gap-1.5",
+        lg ? "h-12" : "h-9",
+        className,
+      )}
     >
       <button
         type="button"
@@ -278,27 +291,41 @@ export function SearchTrigger({
         aria-label={active ? `Search: ${active.label}. Change` : "Search designs"}
         aria-keyshortcuts="Meta+K Control+K"
         className={cn(
-          "group flex min-w-0 flex-1 items-center gap-2 bg-white px-3 text-left transition-colors",
-          active ? "rounded-l-xl" : "rounded-xl",
-          CHIP_SHADOW,
-          "hover:bg-[#fcfcfc] active:scale-[0.995] motion-reduce:active:scale-100",
+          "group flex min-w-0 flex-1 items-center gap-2 rounded-[0.875rem] text-left",
+          lg ? "pl-3.5 pr-3" : "pl-2.5 pr-2",
+          CONTROL,
+          // Name the properties: a blanket transition would catch `width` when
+          // the clear segment appears and smear the field.
+          "transition-[background-color,transform] duration-150 ease-out",
+          "hover:bg-[oklch(0.993_0_0)] active:scale-[0.985] motion-reduce:active:scale-100",
+          FOCUS_RING,
         )}
       >
         <Search
-          className="size-4 shrink-0 text-[#8a8c8f] transition-colors group-hover:text-[#5c5c5e]"
+          className={cn(
+            "shrink-0 transition-colors duration-150 ease-out",
+            lg ? "size-[1.125rem]" : "size-[0.9375rem]",
+            active ? "text-ink" : "text-ink-4 group-hover:text-ink-3",
+          )}
           strokeWidth={1.8}
           aria-hidden
         />
+        {/* One weight in both states — swapping to medium when a search lands
+            reflows the label and nudges the kbd hint. Colour carries state. */}
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-sm tracking-tight",
-            active ? "font-medium text-[#1f2123]" : "text-[#8a8c8f]",
+            "min-w-0 flex-1 truncate tracking-tight",
+            lg ? "text-[0.9375rem]" : "text-[0.8125rem]",
+            active ? "text-ink" : "text-ink-3",
           )}
         >
-          {active ? active.label : "Search designs"}
+          {active ? active.label : "Search"}
         </span>
         {active ? null : (
-          <kbd className="hidden shrink-0 items-center gap-0.5 rounded-md bg-[#f2f2f2] px-1.5 py-0.5 font-sans text-[11px] font-medium text-[#8a8c8f] sm:flex">
+          <kbd
+            aria-hidden
+            className="hidden shrink-0 items-center rounded-[0.3125rem] bg-chip px-1.5 py-px font-sans text-[0.6875rem] leading-[1.125rem] text-ink-3 tabular-nums lg:flex"
+          >
             {mac ? "⌘" : "Ctrl"}K
           </kbd>
         )}
@@ -310,11 +337,15 @@ export function SearchTrigger({
           onClick={onClear}
           aria-label="Clear search"
           className={cn(
-            "flex w-[38px] shrink-0 items-center justify-center rounded-r-xl bg-white text-[#707275] transition-colors hover:bg-[#fcfcfc] hover:text-[#1f2123] active:scale-[0.98] motion-reduce:active:scale-100",
-            CHIP_SHADOW,
+            "flex shrink-0 items-center justify-center rounded-[0.875rem] text-ink-3",
+            lg ? "w-12" : "w-9",
+            CONTROL,
+            "transition-[background-color,color,transform] duration-150 ease-out",
+            "hover:bg-[oklch(0.993_0_0)] hover:text-ink active:scale-[0.96] motion-reduce:active:scale-100",
+            FOCUS_RING,
           )}
         >
-          <X className="size-[18px]" strokeWidth={1.8} />
+          <X className="size-4" strokeWidth={1.8} />
         </button>
       ) : null}
     </div>

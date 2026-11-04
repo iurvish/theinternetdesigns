@@ -67,14 +67,10 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
-      style={{ backgroundColor: "#f7f7f7", colorScheme: "light" }}
+      style={{ colorScheme: "light" }}
       suppressHydrationWarning
     >
-      <body
-        className="min-h-full flex flex-col bg-[#f7f7f7] text-foreground"
-        style={{ backgroundColor: "#f7f7f7" }}
-        suppressHydrationWarning
-      >
+      <body className="flex min-h-full flex-col text-ink" suppressHydrationWarning>
         {children}
         <Toaster position="top-center" richColors />
         <Analytics />

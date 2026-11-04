@@ -9,12 +9,16 @@ import { cn } from "@/lib/utils";
 
 const MAX_COLORS = 2;
 
-/** Paper nodes 90-0 / AG-0 — split colour-tag segments */
+/**
+ * Raised Paper, matching the sort trigger it sits beside. Kept as two separate
+ * rounded buttons rather than one joined tag — joined, they read as a white
+ * container floating next to the chips.
+ */
 const TAG_SEGMENT_SHADOW =
   "shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
 
 const tagSegmentClass =
-  "flex shrink-0 items-center justify-center overflow-hidden bg-white";
+  "flex shrink-0 items-center justify-center overflow-hidden bg-panel transition-colors duration-150 ease-out hover:bg-[oklch(0.993_0_0)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/35";
 
 /** Toolbar swatch — Paper node BI-0 / BJ-0 (20×20 inside 38×38 segment) */
 function TagSwatchChip({
@@ -42,7 +46,7 @@ function TagSwatchChip({
           onRemove();
         }}
         aria-label={`Remove ${color}`}
-        className="absolute -right-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-[#1f2123] text-white shadow-sm"
+        className="absolute -right-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-ink text-white shadow-sm"
       >
         <X className="size-2" strokeWidth={2.5} />
       </button>
@@ -175,7 +179,7 @@ function ColorSwatch({
           }}
           aria-label={`Remove ${color}`}
           className={cn(
-            "absolute flex items-center justify-center rounded-full bg-[#1f2123] text-white shadow-sm",
+            "absolute flex items-center justify-center rounded-full bg-ink text-white shadow-sm",
             size === "md"
               ? "-right-1.5 -top-1.5 size-4"
               : "-right-1 -top-1 size-3.5",
@@ -195,9 +199,12 @@ function ColorSwatch({
 export function ColorSearch({
   selected,
   onSelected,
+  size = "sm",
 }: {
   selected: string[];
   onSelected: (colors: string[]) => void;
+  /** `lg` matches the mobile sheet's taller search field. */
+  size?: "sm" | "lg";
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -211,6 +218,8 @@ export function ColorSearch({
 
   const current = hsvToHex(hsv);
   const hasSelection = selected.length > 0;
+  const box = size === "lg" ? "size-12" : "size-9";
+  const row = size === "lg" ? "h-12" : "h-9";
 
   const draftRef = useRef<string[]>(selected);
   const editIdxRef = useRef(selected.length);
@@ -372,17 +381,15 @@ export function ColorSearch({
   return (
     <div ref={rootRef} className="relative">
       {/* Split tag — Paper nodes AN-0 / AT-0 */}
-      <div className="flex items-stretch gap-px">
+      <div className="flex items-stretch gap-1.5">
         {hasSelection ? (
           <div
             role="group"
             aria-label="Edit colours"
             className={cn(
               tagSegmentClass,
-              "relative overflow-visible rounded-l-xl",
-              selected.length === 1
-                ? "size-[38px] p-2"
-                : "h-[38px] gap-2 px-2 py-2",
+              "relative overflow-visible rounded-full",
+              selected.length === 1 ? cn(box, "p-2") : cn(row, "gap-2 px-2 py-2"),
               TAG_SEGMENT_SHADOW,
             )}
           >
@@ -404,14 +411,18 @@ export function ColorSearch({
             aria-label="Search by colour"
             className={cn(
               tagSegmentClass,
-              "relative size-[38px] overflow-visible rounded-l-xl p-2 transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
+              "relative overflow-visible rounded-full p-2 transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
+              box,
               TAG_SEGMENT_SHADOW,
             )}
           >
-            <ColorDotsIcon className="size-[22px]" />
+            <ColorDotsIcon
+              className={size === "lg" ? "size-[1.5rem]" : "size-[1.25rem]"}
+            />
           </button>
         )}
 
+        {hasSelection ? (
         <button
           type="button"
           onClick={() => {
@@ -421,16 +432,18 @@ export function ColorSearch({
           aria-label={atMaxColors ? "Clear colours" : "Add colour"}
           className={cn(
             tagSegmentClass,
-            "size-[38px] rounded-r-xl px-2 py-2.5 transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
+            "rounded-full px-2 py-2.5 transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
+            box,
             TAG_SEGMENT_SHADOW,
           )}
         >
           {atMaxColors ? (
-            <X className="size-[18px] text-[#707275]" strokeWidth={1.5} />
+            <X className="size-[1.125rem] text-ink-2" strokeWidth={1.5} />
           ) : (
-            <Plus className="size-5 text-[#707275]" strokeWidth={1.5} />
+            <Plus className="size-5 text-ink-2" strokeWidth={1.5} />
           )}
         </button>
+        ) : null}
       </div>
 
       <AnimatePresence>
@@ -440,8 +453,8 @@ export function ColorSearch({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.96 }}
             transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
-            style={{ transformOrigin: "top left" }}
-            className="pointer-events-none absolute left-0 top-full z-50 mt-2 whitespace-nowrap rounded-lg bg-[#1f2123] px-2.5 py-1.5 text-xs font-medium text-white shadow-[0_6px_20px_-6px_rgba(0,0,0,0.35)]"
+            style={{ transformOrigin: "top right" }}
+            className="pointer-events-none absolute right-0 top-full z-50 mt-2 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 text-xs font-medium text-white shadow-[0_6px_20px_-6px_rgba(0,0,0,0.35)]"
           >
             Search by colors
           </motion.div>
@@ -456,8 +469,8 @@ export function ColorSearch({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: -6 }}
             transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
-            style={{ transformOrigin: "top left" }}
-            className="absolute left-0 top-full z-50 mt-2 w-[240px] overflow-hidden rounded-2xl border border-[#e3e5e8] bg-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.12)]"
+            style={{ transformOrigin: "top right" }}
+            className="absolute right-0 top-full z-50 mt-2 w-[240px] overflow-hidden rounded-2xl border border-line bg-panel shadow-[0_8px_32px_-8px_rgba(0,0,0,0.12)]"
           >
             <div className="p-3">
               <SvSquare hsv={hsv} onChange={applyHsv} />
@@ -519,11 +532,11 @@ export function ColorSearch({
               </div>
             </div>
 
-            <div className="border-t border-[#e3e5e8] bg-[#fafafa] px-3 py-3">
+            <div className="border-t border-line bg-[#fafafa] px-3 py-3">
               <button
                 type="button"
                 onClick={onSearch}
-                className="relative h-9 w-full overflow-hidden rounded-xl bg-[#1f2123] text-sm font-medium tracking-tight text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.14)] transition-[transform,background-color] hover:bg-[#2a2c2e] active:scale-[0.98] motion-reduce:active:scale-100"
+                className="relative h-9 w-full overflow-hidden rounded-xl bg-ink text-sm font-medium tracking-tight text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.14)] transition-[transform,background-color] hover:bg-[#2a2c2e] active:scale-[0.98] motion-reduce:active:scale-100"
               >
                 <span
                   aria-hidden

@@ -48,6 +48,12 @@ export type CorpusIndex = {
   oldest: number[];
   featured: number[];
   hiddenGems: number[];
+  /**
+   * Positions that carry a `siteUrl`. Websites and designs are separate
+   * surfaces — a site never shows up in the design feed and vice versa — so
+   * every feed order gets filtered through this.
+   */
+  websitePositions: Set<number>;
   byCategoryRecent: Map<string, number[]>;
   /** token -> positions that contain it. */
   postings: Map<string, number[]>;
@@ -122,6 +128,7 @@ function toCard(post: CorpusPost): PostListItem {
       ? cleanCaptionForDisplay(post.caption) || null
       : null,
     sourceUrl: post.sourceUrl,
+    siteUrl: post.siteUrl ?? null,
     source: post.source,
     hasVideo: post.hasVideo,
     autoplayInFeed: post.autoplayInFeed,
@@ -448,6 +455,11 @@ function buildIndex(snapshot: CorpusSnapshot): CorpusIndex {
     oldest: [...recent].reverse(),
     featured: recent.filter((i) => posts[i]!.featured),
     hiddenGems: recent.filter((i) => posts[i]!.hiddenGem),
+    // Derived here, not in the snapshot: a Set can't survive the JSON
+    // round-trip the snapshot goes through.
+    websitePositions: new Set(
+      recent.filter((i) => Boolean(posts[i]!.siteUrl)),
+    ),
     byCategoryRecent,
     postings,
     docWeights,
