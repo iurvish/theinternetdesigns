@@ -95,7 +95,7 @@ Three measurements worth not rediscovering:
 
 ### The feed (`features/posts/explore-feed.tsx`, ~1700 lines)
 
-`ExploreFeed` owns filter state; `FeedBody` owns posts and the lightbox. Three mutually exclusive modes paint the grid:
+`ExploreFeed` owns the shell (sidebar rail, mobile drawer, chip rail) and filter state; `FeedBody` owns posts and the lightbox. Three mutually exclusive modes paint the grid:
 
 - **Browse** — paginated, infinite scroll, prefetched per category on idle.
 - **Colour** — `searchByColorsAction`, whole result set in one request.
@@ -103,7 +103,74 @@ Three measurements worth not rediscovering:
 
 Colour and keyword search clear each other, and a category click clears both. Pagination is disabled in either replace-the-grid mode (the `paging` flag). Async results are tagged with their filter key so a stale response can never paint over a newer one — follow that pattern for any new mode.
 
-SSR paints `StaticFeedCard` at all three breakpoints; after hydration `useMasonryReady()` drops the inactive trees so images and `layoutId`s exist exactly once. Positions must not shift between the two.
+SSR paints `StaticFeedCard` at **four** breakpoints (1 / 2 / 3 / 4 columns, the last from `xl`); after hydration `useMasonryReady()` drops the inactive trees so images and `layoutId`s exist exactly once. Positions must not shift between the two. The cache key is `category|view|order` — all three, or a view switch reads another view's page.
+
+**`view` and `order` are separate axes.** `featured` and `hidden_gems` are *subsets* of the recent order in `lib/corpus/index.ts`, not orderings, so `getRecentPosts` takes `{ view, order }` and an "oldest" collection is just the subset reversed. The sort menu still presents one flat list of four; `splitSort` / `joinSort` in `explore-feed.tsx` map between the two.
+
+The sidebar's nav rows are category shortcuts (`SIDEBAR_NAV` in `components/layout/app-sidebar.tsx`): Designs → `all`, Websites → `landing-page`, App Screenshots → `mobile-apps`. They drive the same `active` state the chips do, so picking one lights the matching chip. **Creators is deliberately inert** — there is no creators surface behind it.
+
+### Websites (`website-card.tsx`, `website-preview.tsx`)
+
+**Designs and websites are separate surfaces, not two filters over one pile.**
+`FeedSurface` (`"designs" | "websites"`) is the coarsest cut in
+`getRecentPosts`: a post with a `siteUrl` is a website entry and never appears
+in the design feed, and vice versa. `index.websitePositions` is the Set that
+splits them. The surface is part of the feed cache key
+(`surface|category|view|order`) — drop it and a view switch reads another
+surface's page.
+
+A website entry renders a `WebsiteCard`: a live `<iframe>` of the site scaled
+into the tile, plus a favicon/name/host row. Clicking opens `WebsitePreview`,
+a dialog with the site framed full-size and an "Open Site" button.
+
+- **`posts.site_url` is the live site; `source_url` is the X post or pin.** They
+  are not interchangeable. Only the admin app writes `site_url`, so it is
+  nullable and the surface is inert until it's populated.
+- `scripts/seed-site-urls.ts` fills it for 28 landing-page posts as **demo
+  data** — the pairings are arbitrary and the screenshot won't match the site.
+  Every URL in it was checked to send neither `X-Frame-Options` nor a
+  `frame-ancestors` CSP, so the frame actually loads; re-check before adding
+  one. `--clear` wipes the column.
+- The same `WebsiteCard` renders in both the SSR and hydrated trees (it carries
+  no Motion), so the markup is byte-identical and nothing resizes on hydration.
+  `postAspectRatioValue` must return the tile's ratio for these, or the column
+  packer works from a height the card never has.
+- **The tile's height comes from `FRAME_H`.** The frame renders at 1280px wide
+  (so you see the desktop layout, not the mobile breakpoint) and is scaled by
+  `measuredWidth / FRAME_W`; the tile's `aspect-ratio` is `FRAME_W / FRAME_H`,
+  so the two always match. The scale is measured with a `ResizeObserver`
+  because CSS cannot divide a length by a length to get a unitless factor.
+- **Card frames scroll but never take a click.** The frame is
+  `pointer-events-none`, so the whole card stays one button that opens the
+  dialog; scrolling is reimplemented in `LiveTile`, which renders a
+  `FRAME_RENDER_H`-tall strip and moves its `top` on a non-passive `wheel`
+  listener. You cannot scroll a cross-origin frame from the parent, and making
+  it interactive hands it the clicks too — this is the only split that gives
+  both. The handler stops calling `preventDefault` at either end of the strip
+  so the feed takes the wheel back instead of the card trapping it. React's
+  `onWheel` won't work here: it routes through a passive root listener.
+- Frames mount via `IntersectionObserver` 1200px ahead and unmount 20s after
+  leaving. Each one is a full page load — mount them all and the feed stalls;
+  unmount them instantly and a scroll up-and-back reloads everything.
+- **Never use `post.thumbnail` as the frame's placeholder.** It's a screenshot
+  of the design the post came from, not of the site, so it flashed an
+  unrelated page under every card. Both the card and the dialog use a plain
+  skeleton.
+- Websites cap at three columns (`maxColumns`): a fourth shrinks a scaled
+  desktop page past readable.
+- **Framing fails for a large share of sites** (`X-Frame-Options`,
+  `frame-ancestors`). There is no event for it, so `WebsitePreview` times out
+  after 4s and surfaces the stored screenshot plus an "Open" link rather than a
+  white rectangle. Don't "fix" that timeout into a spinner.
+- `db:generate` is broken in this repo (colliding drizzle meta snapshots,
+  predates `0014`), so `drizzle/0014_post_site_url.sql` and its `_journal.json`
+  entry were written by hand. **The local journal is behind the database
+  ledger** — `drizzle.__drizzle_migrations` held entries past the journal's
+  last `when`, and `migrate` only applies entries newer than the ledger's
+  high-water mark, so a hand-written entry stamped `last + 1` is silently
+  skipped and reported as success. Stamp new entries well past the ledger
+  (`select max(created_at) from drizzle.__drizzle_migrations`) and verify the
+  column landed rather than trusting the "applied successfully" line.
 
 ### Lightbox (`post-overlay.tsx`)
 
@@ -122,7 +189,10 @@ Client files import server types with `import type` only (erased at compile time
 
 ## Conventions
 
-- **Design tokens are literal, not themed**: `#f7f7f7` surface, `#e3e5e8` borders, `#1f2123` ink, `#707275` secondary. Chrome is skeuomorphic "Paper" — layered `shadow-[...]` stacks with white inset bevels. Match neighbouring components rather than inventing values.
+- **The shell is tokenised; the overlay and palette are not.** `app/globals.css` holds an oklch ramp on a single hue (258) — `shell` `canvas` `panel` `field` `line` `ink` `ink-2` `ink-3` `ink-4` `chip` `chip-hover` `chip-on` `chip-on-fg` `skel` — used as `bg-shell`, `text-ink-2`, `border-line`. Use these for anything in the shell, feed or chips. `ink-4` is **non-text only** (3.1:1); body copy on a light surface stops at `ink-2`. `post-overlay.tsx` and `search-command.tsx`'s palette still carry the old literals — leave them unless you are restyling those surfaces wholesale.
+- **Chrome is still skeuomorphic "Paper"** — layered `shadow-[...]` raised stacks and rounded corners on every control (chips, sort pill, search field, colour buttons all share one shadow string). What's gone is the hero wordmark, the paper-curl, the bordered toolbar sheet, and the **white inset bevels**: both planes are now `#fafafa`, and a pure-white bevel on that is lighter than the surface, so it drew a visible line that read as a container edge.
+- **The rail's right edge is a 1px gradient column, not a border** (`RailEdge` in `app-sidebar.tsx`): shell colour at both ends, `--color-line` through the middle 28–72%, so the seam fades out top and bottom. A `border-r` can't do this — borders take one colour. `ExploreFeedFallback` repeats it as a `background-image` so the skeleton doesn't flash a hard rule.
+- **New values go in `rem`**, including arbitrary ones (`text-[0.8125rem]`, `size-[1.125rem]`). Tailwind's own scale is already rem, so prefer `h-9` / `gap-2.5` over an arbitrary value when it maps exactly.
 - Beware `overflow-hidden` on a wrapper whose child carries the raised shadow; it clips it and the control reads flat.
 - **Motion vocabulary** (stated in `post-overlay.tsx`): springs for anything spatial, quick eases for opacity. Always pair with `motion-reduce:`.
 - Comments explain **why**, not what. Match that register — several non-obvious decisions here are only recoverable from them.

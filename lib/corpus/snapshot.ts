@@ -54,6 +54,7 @@ export type CorpusPost = {
   title: string | null;
   caption: string | null;
   sourceUrl: string;
+  siteUrl: string | null;
   source:
     | "x"
     | "threads"
@@ -150,6 +151,7 @@ type PostRow = {
   title: string | null;
   caption: string | null;
   sourceUrl: string;
+  siteUrl: string | null;
   source: CorpusPost["source"];
   hasVideo: boolean;
   autoplayInFeed: boolean;
@@ -185,6 +187,7 @@ async function loadPosts(): Promise<CorpusPost[]> {
         p.title,
         p.caption,
         p.source_url as "sourceUrl",
+        p.site_url as "siteUrl",
         p.source,
         p.has_video as "hasVideo",
         p.autoplay_in_feed as "autoplayInFeed",
@@ -265,6 +268,7 @@ async function loadPosts(): Promise<CorpusPost[]> {
       title: row.title,
       caption: row.caption,
       sourceUrl: row.sourceUrl,
+      siteUrl: row.siteUrl ?? null,
       source: row.source,
       hasVideo: Boolean(row.hasVideo),
       autoplayInFeed: Boolean(row.autoplayInFeed),

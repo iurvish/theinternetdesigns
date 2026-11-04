@@ -3,7 +3,6 @@ import Link from "next/link";
 import { PostGrid, PostGridSkeleton } from "@/features/posts/post-grid";
 import { searchPostsByColors, searchDesigns } from "@/features/posts/queries";
 import { interpretationChips } from "@/lib/jev/interpret-search";
-import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 
 /** `#rrggbb` values, comma-separated in the URL. */
@@ -26,9 +25,7 @@ export default async function SearchPage({
   const byColor = colors.length > 0;
 
   return (
-    <>
-      <SiteHeader />
-    <div className="mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-6">
+    <div className="mx-auto w-full max-w-[1600px] bg-canvas px-4 py-8 sm:px-6">
       <div className="mb-8 flex flex-col gap-2">
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Search
@@ -58,7 +55,6 @@ export default async function SearchPage({
         <Results q={q} colors={colors} />
       </Suspense>
     </div>
-    </>
   );
 }
 

@@ -78,6 +78,12 @@ export const posts = pgTable(
     /** Provider-native post id (e.g. Tweet id_str). */
     sourceId: text("source_id").notNull(),
     sourceUrl: text("source_url").notNull(),
+    /**
+     * The live site this post is *about*, when there is one — not `sourceUrl`,
+     * which points at the X post or Pinterest pin. Only the Websites surface
+     * uses it, and only the admin app writes it, so it stays nullable.
+     */
+    siteUrl: text("site_url"),
     creatorId: text("creator_id")
       .notNull()
       .references(() => creators.id, { onDelete: "cascade" }),

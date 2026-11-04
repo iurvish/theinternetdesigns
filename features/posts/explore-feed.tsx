@@ -10,19 +10,33 @@ import {
 } from "react";
 import Image from "next/image";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { ArrowUpRight, Check, ChevronDown, Search, X } from "lucide-react";
-import type { PostListItem, FeedSort } from "./queries";
+import { ArrowUpRight, Check, ChevronDown, Menu, Search, X } from "lucide-react";
+import type {
+  PostListItem,
+  FeedOrder,
+  FeedSurface,
+  FeedView,
+} from "./queries";
 import { cn } from "@/lib/utils";
 import { PostOverlay } from "./post-overlay";
-import { ColorSearch } from "./color-search";
 import { FeedMediaNav } from "./media-nav-pill";
 import { GlassSurface } from "./glass";
 import { searchByColorsAction } from "./color-search-action";
 import { loadFeedPageAction } from "./feed-actions";
 import { runSearchAction } from "./search-actions";
-import { SearchPalette, SearchTrigger } from "./search-command";
+import { SearchPalette } from "./search-command";
+import { WebsiteCard } from "./website-card";
+import { WebsitePreview } from "./website-preview";
+import {
+  SIDEBAR_WIDTH,
+  SidebarCloseButton,
+  SidebarContent,
+  SidebarDrawer,
+  SidebarRail,
+} from "@/components/layout/app-sidebar";
 import { searchKey, type ActiveSearch } from "./search-filter";
 import { SetupRequired } from "@/components/setup-required";
+import { SITE_NAME } from "@/lib/site-config";
 import {
   initTiksOnFirstGesture,
   playMediaSwitch,
@@ -38,7 +52,6 @@ import {
 } from "./masonry-grid";
 
 type Category = { slug: string; name: string };
-type SortKey = FeedSort;
 
 type FeedPageCache = { posts: PostListItem[]; hasMore: boolean };
 
@@ -57,7 +70,7 @@ const searchResultCache = new Map<
   { posts: PostListItem[]; chips: string[] }
 >();
 const colorResultCache = new Map<string, PostListItem[]>();
-const DEFAULT_FILTER_KEY = "all|recent";
+const DEFAULT_FILTER_KEY = "designs|all|all|recent";
 const EMPTY_POSTS: PostListItem[] = [];
 
 const FEED_PAGE_SIZE = 24;
@@ -66,8 +79,13 @@ function asPostList(value: unknown): PostListItem[] {
   return Array.isArray(value) ? (value as PostListItem[]) : EMPTY_POSTS;
 }
 
-function filterCacheKey(category: string, sort: SortKey): string {
-  return `${category}|${sort}`;
+function filterCacheKey(
+  surface: FeedSurface,
+  category: string,
+  view: FeedView,
+  order: FeedOrder,
+): string {
+  return `${surface}|${category}|${view}|${order}`;
 }
 
 /** Ignore stale empty cache entries — `[]` is truthy but must not beat server props. */
@@ -89,10 +107,12 @@ function warmThumbnails(posts: PostListItem[]) {
 
 /** Fetch (or reuse) page 0 for a filter. Populates the module cache. */
 function prefetchFeedPage(
+  surface: FeedSurface,
   category: string,
-  sort: SortKey,
+  view: FeedView,
+  order: FeedOrder,
 ): Promise<FeedPageCache> {
-  const key = filterCacheKey(category, sort);
+  const key = filterCacheKey(surface, category, view, order);
   const cached = feedPageCache.get(key);
   if (cached && asPostList(cached.posts).length > 0) {
     return Promise.resolve(cached);
@@ -100,7 +120,7 @@ function prefetchFeedPage(
   const pending = feedInflight.get(key);
   if (pending) return pending;
 
-  const request = loadFeedPageAction({ offset: 0, category, sort })
+  const request = loadFeedPageAction({ offset: 0, surface, category, view, order })
     .then((raw) => {
       const page = asPostList(raw);
       const prev = feedPageCache.get(key);
@@ -128,6 +148,14 @@ function prefetchFeedPage(
   return request;
 }
 
+/**
+ * The menu still reads as one list, but underneath it drives two axes:
+ * "Featured" and "Hidden gems" are subsets of the recent order, not orderings,
+ * so they set a view while "Recently" / "Oldest" set a direction. Keeping them
+ * separate in the query is what lets a view be ordered at all.
+ */
+type SortKey = "recent" | "hidden_gems" | "featured" | "oldest";
+
 const SORT_LABELS: Record<SortKey, string> = {
   recent: "Recently",
   hidden_gems: "Hidden Gems",
@@ -135,30 +163,39 @@ const SORT_LABELS: Record<SortKey, string> = {
   oldest: "Oldest",
 };
 
-const SORT_ORDER: SortKey[] = ["recent", "hidden_gems", "featured", "oldest"];
+const SORT_OPTIONS: SortKey[] = ["recent", "hidden_gems", "featured", "oldest"];
 
-const SORT_MENU_WIDTH = "w-[176px]";
+function splitSort(key: SortKey): { view: FeedView; order: FeedOrder } {
+  if (key === "oldest") return { view: "all", order: "oldest" };
+  if (key === "featured") return { view: "featured", order: "recent" };
+  if (key === "hidden_gems") return { view: "hidden_gems", order: "recent" };
+  return { view: "all", order: "recent" };
+}
 
-/** Paper colour-tag segment — matches ColorSearch toolbar chips */
-const TAG_SEGMENT_SHADOW =
-  "shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
+function joinSort(view: FeedView, order: FeedOrder): SortKey {
+  if (view === "featured") return "featured";
+  if (view === "hidden_gems") return "hidden_gems";
+  return order === "oldest" ? "oldest" : "recent";
+}
 
-const GITHUB_REPO_URL = "https://github.com/iurvish/theinternetdesigns";
+const SORT_MENU_WIDTH = "w-[8.75rem]";
+
+/** Raised Paper stack — the chips carry it. */
+const CHIP_SHADOW =
+  "shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
+
+/** Paper node 8B-0 — the "Recently" sort trigger. */
+const SORT_TRIGGER_SHADOW =
+  "shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04),0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
+
+/** Neutral, never brand-coloured, never removed. */
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/35";
 
 /**
- * Figma 166-230 / Paper Frame 7 — grey stroke on L+R+B, white inset bevel on
- * all four inner edges. Top grey comes from the hero's bottom border.
- */
-const FIGMA_TOOLBAR_SHEET =
-  "border-x border-b border-[#e3e5e8] bg-[#f7f7f7] shadow-[inset_1px_0_0_0_#fff,inset_-1px_0_0_0_#fff,inset_0_1px_0_0_#fff,inset_0_-1px_0_0_#fff]";
-
-/** Mobile only — inner row divider (grey + white bevel above the line) */
-const MOBILE_ROW_SPLIT =
-  "border-b border-[#e3e5e8] shadow-[inset_0_-1px_0_0_#fff]";
-
-/**
- * The public "The Internet Designs" explorer — a hero heading, a category
- * filter toolbar, and a row-first masonry feed (newest across the top).
+ * The public "The Internet Designs" explorer — a sidebar shell (brand, search,
+ * views, colour), a category chip rail across the top of the content column,
+ * and a row-first masonry feed (newest across the top).
  * Fullscreen shared-element morph is preserved; feed cards use `layout={false}`
  * so they never animate on load.
  *
@@ -175,8 +212,13 @@ export function ExploreFeed({
   initialPosts?: PostListItem[] | null;
   error?: string | null;
 }) {
+  const [surface, setSurface] = useState<FeedSurface>("designs");
   const [active, setActive] = useState<string>("all");
-  const [sort, setSort] = useState<SortKey>("recent");
+  // Two axes, not one: `view` picks the set (sidebar), `order` picks the
+  // direction (top bar). They compose, so "Featured · Oldest" is reachable.
+  const [view, setView] = useState<FeedView>("all");
+  const [order, setOrder] = useState<FeedOrder>("recent");
+  const [menuOpen, setMenuOpen] = useState(false);
   // Selected search colours — when non-empty the grid below is replaced (in place,
   // no navigation) with colour-matched results.
   const [colors, setColors] = useState<string[]>([]);
@@ -205,13 +247,34 @@ export function ExploreFeed({
     setColors([]);
   }, []);
 
+  const selectSurface = useCallback(
+    (nextSurface: FeedSurface, slug: string) => {
+      setSurface(nextSurface);
+      setActive(slug);
+      setSearch(null);
+      setColors([]);
+    },
+    [],
+  );
+
+  const sortKey = joinSort(view, order);
+  const selectSort = useCallback((next: SortKey) => {
+    const { view: nextView, order: nextOrder } = splitSort(next);
+    setView(nextView);
+    setOrder(nextOrder);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const cmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
       const slash = e.key === "/" && !e.metaKey && !e.ctrlKey && !isTyping(e.target);
       if (!cmdK && !slash) return;
-      // The lightbox owns the keyboard while it's up.
-      if (document.querySelector("[data-post-overlay]")) return;
+      // The lightbox and the site preview own the keyboard while they're up.
+      if (
+        document.querySelector("[data-post-overlay],[data-website-preview]")
+      ) {
+        return;
+      }
       e.preventDefault();
       setPaletteOpen((open) => (cmdK ? !open : true));
     };
@@ -221,14 +284,16 @@ export function ExploreFeed({
 
   const prefetchCategory = useCallback(
     (slug: string) => {
-      void prefetchFeedPage(slug, sort);
+      void prefetchFeedPage(surface, slug, view, order);
     },
-    [sort],
+    [surface, view, order],
   );
 
-  // Warm every category for the current sort after idle so first clicks are cache hits.
+  // Warm every category for the current view/order after idle so first clicks
+  // are cache hits.
   useEffect(() => {
-    const slugs = ["all", ...categories.map((c) => c.slug)];
+    const slugs =
+      surface === "websites" ? ["all"] : ["all", ...categories.map((c) => c.slug)];
     let cancelled = false;
     let cursor = 0;
     let timeout = 0;
@@ -238,13 +303,15 @@ export function ExploreFeed({
       const batch: string[] = [];
       while (cursor < slugs.length && batch.length < 3) {
         const slug = slugs[cursor++]!;
-        if (cachedPostsForKey(filterCacheKey(slug, sort))) {
+        if (cachedPostsForKey(filterCacheKey(surface, slug, view, order))) {
           continue;
         }
         batch.push(slug);
       }
       if (batch.length === 0) return;
-      void Promise.all(batch.map((slug) => prefetchFeedPage(slug, sort))).then(
+      void Promise.all(
+        batch.map((slug) => prefetchFeedPage(surface, slug, view, order)),
+      ).then(
         () => {
           if (!cancelled) timeout = window.setTimeout(tick, 50);
         },
@@ -270,102 +337,124 @@ export function ExploreFeed({
         cancelIdleCallback(idleId);
       }
     };
-  }, [categories, sort, active]);
+  }, [categories, surface, view, order, active]);
+
+  const sidebarProps = {
+    activeSurface: surface,
+    activeCategory: active,
+    onSelect: selectSurface,
+    search,
+    onClearSearch: () => setSearch(null),
+    colors,
+    onColors: applyColors,
+  };
+
+  const controls = (
+    <SortMenu
+      value={sortKey}
+      onChange={selectSort}
+      onPrefetch={(next) => {
+        const { view: v, order: o } = splitSort(next);
+        void prefetchFeedPage(surface, active, v, o);
+      }}
+    />
+  );
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="flex w-full flex-1 flex-col bg-[#f7f7f7]">
-        {/* Plain positioning wrapper — all chrome lives on the inner sheet.
-            Elevated so dropdowns paint above the grid. */}
-        <div className="relative z-30 w-full shrink-0">
-          <div className={FIGMA_TOOLBAR_SHEET}>
-            {/* Mobile — two rows: controls, then categories */}
-            <div className="flex flex-col sm:hidden">
-              <div
-                className={cn(
-                  "flex items-center justify-between gap-3 px-2 py-3.5",
-                  MOBILE_ROW_SPLIT,
-                )}
-              >
-                <ColorSearch selected={colors} onSelected={applyColors} />
-                <div className="flex shrink-0 items-center gap-2">
-                  <SortMenu
-                    value={sort}
-                    onChange={setSort}
-                    onPrefetch={(next) => void prefetchFeedPage(active, next)}
-                  />
-                  <GitHubStarLink />
-                </div>
-              </div>
-              {/* Own row on phones — four controls on one 390px line squeezes
-                  the field down to a bare glyph that reads as "some icon". */}
-              <div className={cn("px-2 py-2.5", MOBILE_ROW_SPLIT)}>
-                <SearchTrigger
-                  active={search}
-                  onOpen={() => setPaletteOpen(true)}
-                  onClear={() => setSearch(null)}
-                  className="w-full"
+      <div className="flex min-h-dvh w-full bg-canvas">
+        <SidebarRail>
+          <SidebarContent
+            {...sidebarProps}
+            onOpenSearch={() => setPaletteOpen(true)}
+          />
+        </SidebarRail>
+
+        <SidebarDrawer open={menuOpen} onClose={() => setMenuOpen(false)}>
+          <SidebarContent
+            {...sidebarProps}
+            sheet
+            markerId="sidebar-nav-marker-drawer"
+            onOpenSearch={() => {
+              setMenuOpen(false);
+              setPaletteOpen(true);
+            }}
+            onNavigate={() => setMenuOpen(false)}
+            headerTrailing={
+              <SidebarCloseButton onClick={() => setMenuOpen(false)} />
+            }
+          />
+        </SidebarDrawer>
+
+        {/* `min-w-0` or the chip rail's scroll container inherits the grid's
+            intrinsic width and pushes the column past the viewport. */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Mobile chrome — the rail is hidden below `lg`, so the brand and
+              the menu affordance have to live here instead. */}
+          <div className="flex h-14 shrink-0 items-center gap-2.5 px-3.5 lg:hidden">
+            <Image
+              src="/favicon-96x96.png"
+              alt=""
+              width={28}
+              height={28}
+              className="size-7 shrink-0 rounded-md object-cover shadow-[0_0_0_1px_rgba(0,0,0,0.06)]"
+              priority
+            />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium tracking-tight text-ink">
+              {SITE_NAME}
+            </span>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open menu"
+              className={cn(
+                "-mr-1 flex size-10 shrink-0 items-center justify-center rounded-lg text-ink-2",
+                "transition-[background-color,color,transform] duration-150 ease-out",
+                "hover:bg-chip hover:text-ink active:scale-[0.96] motion-reduce:active:scale-100",
+                FOCUS_RING,
+              )}
+            >
+              <Menu className="size-[1.25rem]" strokeWidth={1.8} />
+            </button>
+          </div>
+
+          {/* Chip rail. Sticky so the categories stay reachable down a long
+              feed — opaque, because a translucent bar let card edges ghost
+              through it on scroll. */}
+          <div className="sticky top-0 z-30 shrink-0 bg-canvas">
+            <div className="flex items-center gap-3 px-2.5 pb-3 pt-3 sm:gap-5 sm:px-3.5 sm:pb-3.5 sm:pt-5">
+              {/* Categories describe designs. A website entry is a URL, not a
+                  tagged image, so the rail would filter nothing. */}
+              {surface === "designs" ? (
+                <PillRail
+                  categories={categories}
+                  active={active}
+                  onSelect={selectCategory}
+                  onPrefetch={prefetchCategory}
+                  className="min-w-0 flex-1"
                 />
-              </div>
-              <PillRail
-                categories={categories}
-                active={active}
-                onSelect={selectCategory}
-                onPrefetch={prefetchCategory}
-              />
-            </div>
-
-            {/* Desktop — single row: colour | categories | filter */}
-            <div className="hidden items-stretch gap-x-4 px-3.5 sm:flex">
-              <div className="flex shrink-0 items-center gap-2 py-3.5">
-                <ColorSearch selected={colors} onSelected={applyColors} />
-                <SearchTrigger
-                  active={search}
-                  onOpen={() => setPaletteOpen(true)}
-                  onClear={() => setSearch(null)}
-                  className={search ? "w-[260px]" : "w-[208px]"}
-                />
-              </div>
-
-              <Divider />
-
-              <PillRail
-                categories={categories}
-                active={active}
-                onSelect={selectCategory}
-                onPrefetch={prefetchCategory}
-                className="min-w-0 flex-1"
-              />
-
-              <Divider />
-
-              <div className="flex shrink-0 items-center gap-2 py-3.5">
-                <SortMenu
-                  value={sort}
-                  onChange={setSort}
-                  onPrefetch={(next) => void prefetchFeedPage(active, next)}
-                />
-                <GitHubStarLink />
-              </div>
+              ) : (
+                <div className="min-w-0 flex-1" />
+              )}
+              <div className="flex shrink-0 items-center gap-2">{controls}</div>
             </div>
           </div>
-        </div>
 
-        <div className="flex min-h-0 w-full flex-1 flex-col">
-          <FeedBody
-            initialPosts={safeInitialPosts}
-            error={error}
-            active={active}
-            sort={sort}
-            colors={colors}
-            search={search}
-            onClearSearch={() => setSearch(null)}
-            onEditSearch={() => setPaletteOpen(true)}
-          />
+          <div className="flex min-h-0 w-full flex-1 flex-col">
+            <FeedBody
+              initialPosts={safeInitialPosts}
+              error={error}
+              surface={surface}
+              active={active}
+              view={view}
+              order={order}
+              colors={colors}
+              search={search}
+              onClearSearch={() => setSearch(null)}
+              onEditSearch={() => setPaletteOpen(true)}
+            />
+          </div>
         </div>
-
-        {/* Footer strip */}
-        <div className="h-16 w-full shrink-0 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff]" />
 
         <SearchPalette
           open={paletteOpen}
@@ -402,7 +491,7 @@ function GridBox({
   return (
     <div
       className={cn(
-        "flex w-full gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-2 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] sm:p-3.5",
+        "flex w-full gap-2.5 bg-canvas px-2.5 pb-2.5 pt-2 sm:px-3.5 sm:pb-3.5 sm:pt-3",
         fill ? "min-h-[50vh] flex-1 items-stretch" : "items-start",
       )}
     >
@@ -414,8 +503,10 @@ function GridBox({
 function FeedBody({
   initialPosts: initialPostsProp,
   error,
+  surface,
   active,
-  sort,
+  view,
+  order,
   colors,
   search,
   onClearSearch,
@@ -423,8 +514,10 @@ function FeedBody({
 }: {
   initialPosts: PostListItem[];
   error: string | null;
+  surface: FeedSurface;
   active: string;
-  sort: SortKey;
+  view: FeedView;
+  order: FeedOrder;
   colors: string[];
   search: ActiveSearch | null;
   onClearSearch: () => void;
@@ -434,6 +527,8 @@ function FeedBody({
   // postsPromise → initialPosts rename.
   const initialPosts = asPostList(initialPostsProp);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // Site entries open a framed preview instead of the media lightbox.
+  const [previewPost, setPreviewPost] = useState<PostListItem | null>(null);
 
   useEffect(() => {
     initTiksOnFirstGesture();
@@ -471,7 +566,8 @@ function FeedBody({
   // client-fetched page from cache on soft remounts — never during render
   // (reference changes on deserialized props caused hydration mismatches).
   useEffect(() => {
-    if (active !== "all" || sort !== "recent") return;
+    if (surface !== "designs" || active !== "all") return;
+    if (view !== "all" || order !== "recent") return;
 
     const cachedPosts = asPostList(
       feedPageCache.get(DEFAULT_FILTER_KEY)?.posts,
@@ -502,7 +598,7 @@ function FeedBody({
     });
     loadedFilterKey.current = DEFAULT_FILTER_KEY;
     setFeedBootstrapping(false);
-  }, [initialPosts, active, sort]);
+  }, [initialPosts, surface, active, view, order]);
 
   // Colour-matched results fetched in place. Stored tagged with the colour key so
   // we can tell fresh results from a previous search's (avoids showing stale posts
@@ -560,10 +656,10 @@ function FeedBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSearchKey]);
 
-  // Swap the grid when category/sort change. Cached pages paint instantly;
+  // Swap the grid when category/view/order change. Cached pages paint instantly;
   // uncached first visits show a skeleton instead of the previous category.
   useEffect(() => {
-    const key = filterCacheKey(active, sort);
+    const key = filterCacheKey(surface, active, view, order);
     if (loadedFilterKey.current === key) return;
 
     const cachedPosts = cachedPostsForKey(key);
@@ -574,7 +670,7 @@ function FeedBody({
       setFeedBootstrapping(false);
       const gen = ++loadGen.current;
       let cancelled = false;
-      prefetchFeedPage(active, sort).then(
+      prefetchFeedPage(surface, active, view, order).then(
         (next) => {
           if (cancelled || loadGen.current !== gen) return;
           setFeedPosts(next.posts);
@@ -592,7 +688,7 @@ function FeedBody({
     setFeedPosts([]);
     setHasMore(false);
     setFeedBootstrapping(true);
-    prefetchFeedPage(active, sort).then(
+    prefetchFeedPage(surface, active, view, order).then(
       (next) => {
         if (cancelled || loadGen.current !== gen) return;
         loadedFilterKey.current = key;
@@ -608,7 +704,7 @@ function FeedBody({
     return () => {
       cancelled = true;
     };
-  }, [active, sort]);
+  }, [surface, active, view, order]);
 
   const loadMore = useCallback(async () => {
     if (
@@ -620,15 +716,17 @@ function FeedBody({
     )
       return;
     const gen = loadGen.current;
-    const filterKey = `${active}|${sort}`;
+    const filterKey = filterCacheKey(surface, active, view, order);
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
       const page = asPostList(
         await loadFeedPageAction({
           offset: feedPosts.length,
+          surface,
           category: active,
-          sort,
+          view,
+          order,
         }),
       );
       if (loadGen.current !== gen) return;
@@ -656,8 +754,10 @@ function FeedBody({
     search,
     feedBootstrapping,
     feedPosts.length,
+    surface,
     active,
-    sort,
+    view,
+    order,
   ]);
 
   // Prefetch the next page when the sentinel is ~800px from view.
@@ -734,7 +834,10 @@ function FeedBody({
   }, [searchActive, searchPosts, colorActive, colorPosts, feedPosts]);
 
   const layoutReady = useMasonryReady();
-  const columnCount = useMasonryLayout();
+  // Websites get three columns at most: the tile is a scaled desktop page, and
+  // a fourth column shrinks it to the point where the site is unreadable.
+  const maxColumns = surface === "websites" ? 3 : 4;
+  const columnCount = Math.min(useMasonryLayout(), maxColumns);
   const aspectRatios = useMemo(
     () => visible.map((p, i) => postAspectRatioValue(p, i)),
     [visible],
@@ -743,12 +846,28 @@ function FeedBody({
     one: buckets1,
     two: buckets2,
     three: buckets3,
+    four: buckets4,
   } = useResponsiveMasonryBuckets(aspectRatios);
 
   const mapBuckets = (buckets: number[][], mode: "static" | "interactive") =>
     buckets.map((indices) =>
       indices.map((i) => {
         const p = visible[i]!;
+        // Same component in both modes — the markup has to be identical across
+        // SSR and hydration or the card changes size under the reader.
+        if (p.siteUrl) {
+          const siteUrl = p.siteUrl;
+          return (
+            <WebsiteCard
+              key={p.id}
+              post={p}
+              siteUrl={siteUrl}
+              onOpen={
+                mode === "interactive" ? () => setPreviewPost(p) : () => {}
+              }
+            />
+          );
+        }
         if (mode === "static") {
           return <StaticFeedCard key={p.id} post={p} index={i} />;
         }
@@ -790,9 +909,9 @@ function FeedBody({
   const modeFor = (cols: number): "static" | "interactive" =>
     layoutReady && columnCount === cols ? "interactive" : "static";
 
-  const columnsFor = (cols: 1 | 2 | 3, buckets: number[][]) => {
+  const columnsFor = (cols: number, buckets: number[][]) => {
     // After hydration, drop inactive breakpoint trees so images/layoutIds
-    // only exist once. SSR keeps all three so CSS can show the right one.
+    // only exist once. SSR keeps all four so CSS can show the right one.
     if (layoutReady && columnCount !== cols) {
       return Array.from({ length: cols }, () => [] as ReactNode[]);
     }
@@ -846,9 +965,21 @@ function FeedBody({
               />
               <MasonryGrid
                 columnCount={3}
-                className={cn("hidden md:flex", refreshing && "opacity-55")}
+                className={cn(
+                  "hidden md:flex",
+                  // Only hand off to a fourth column when there is one.
+                  maxColumns >= 4 && "xl:hidden",
+                  refreshing && "opacity-55",
+                )}
                 columns={columnsFor(3, buckets3)}
               />
+              {maxColumns >= 4 ? (
+                <MasonryGrid
+                  columnCount={4}
+                  className={cn("hidden xl:flex", refreshing && "opacity-55")}
+                  columns={columnsFor(4, buckets4)}
+                />
+              ) : null}
             </>
           )}
 
@@ -863,7 +994,7 @@ function FeedBody({
                       <div
                         key={col}
                         className={cn(
-                          "animate-pulse rounded-lg bg-[#ececee]",
+                          "animate-pulse rounded-lg bg-skel",
                           col % 3 === 0
                             ? "h-64"
                             : col % 3 === 1
@@ -881,6 +1012,13 @@ function FeedBody({
           ) : null}
         </div>
       </GridBox>
+
+      <WebsitePreview
+        post={previewPost}
+        siteUrl={previewPost?.siteUrl ?? null}
+        open={previewPost !== null}
+        onClose={() => setPreviewPost(null)}
+      />
 
       <AnimatePresence>
         {openIndex !== null ? (
@@ -911,75 +1049,63 @@ function FeedBody({
 /** First-paint shell while the homepage feed query is still streaming. */
 export function ExploreFeedFallback() {
   return (
-    <div className="flex w-full flex-1 flex-col bg-[#f7f7f7]">
-      <div className="relative z-30 w-full shrink-0">
-        <div className={FIGMA_TOOLBAR_SHEET}>
-          <div className="h-[58px] sm:h-[62px]" />
+    <div className="flex min-h-dvh w-full bg-canvas">
+      {/* Reserve the rail so the grid doesn't reflow sideways when the real
+          shell arrives — same width, same border, no content. */}
+      <div
+        style={{ width: SIDEBAR_WIDTH }}
+        // Same fading seam as the real rail, or the skeleton flashes a hard
+        // full-height rule for one frame before the shell takes over.
+        className="hidden shrink-0 bg-shell bg-[linear-gradient(to_bottom,var(--color-shell)_0%,var(--color-line)_28%,var(--color-line)_72%,var(--color-shell)_100%)] bg-[length:1px_100%] bg-right bg-no-repeat lg:block"
+        aria-hidden
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="h-14 shrink-0 lg:hidden" />
+        <div className="h-[4.25rem] shrink-0" />
+        <div className="flex w-full items-start gap-2.5 bg-canvas px-2.5 pb-2.5 sm:px-3.5 sm:pb-3.5">
+          <GridSkeletonColumns />
         </div>
-      </div>
-      <div className="flex w-full items-start gap-2.5 border-r border-b border-l border-[#e3e5e8] bg-[#f7f7f7] p-2 shadow-[-1px_0_0_0_#fff,1px_0_0_0_#fff,0_1px_0_0_#fff] sm:p-3.5">
-        <GridSkeletonColumns />
       </div>
     </div>
   );
 }
 
-/** Loading placeholder — 1 col on mobile, 2 on sm, 3 on md+ (pure CSS). */
+/** Loading placeholder — 1 col on mobile, 2 on sm, 3 on md, 4 on xl (pure CSS). */
 function GridSkeletonColumns() {
   const heights = ["h-64", "h-52", "h-80", "h-60", "h-72", "h-56"] as const;
+  // Offsets differ per column so the placeholder reads as masonry rather than
+  // four identical stacks.
+  const columns = [
+    { from: 0, show: "flex" },
+    { from: 2, show: "hidden sm:flex" },
+    { from: 1, show: "hidden md:flex" },
+    { from: 3, show: "hidden xl:flex" },
+  ] as const;
 
   return (
     <div className="flex w-full items-start gap-2.5">
-      <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-        {heights.slice(0, 3).map((h, i) => (
-          <div
-            key={i}
-            className={cn("animate-pulse rounded-lg bg-[#ececee]", h)}
-          />
-        ))}
-      </div>
-      <div className="hidden min-w-0 flex-1 flex-col gap-2.5 sm:flex">
-        {heights.slice(2, 5).map((h, i) => (
-          <div
-            key={i}
-            className={cn("animate-pulse rounded-lg bg-[#ececee]", h)}
-          />
-        ))}
-      </div>
-      <div className="hidden min-w-0 flex-1 flex-col gap-2.5 md:flex">
-        {heights.slice(1, 4).map((h, i) => (
-          <div
-            key={i}
-            className={cn("animate-pulse rounded-lg bg-[#ececee]", h)}
-          />
-        ))}
-      </div>
+      {columns.map(({ from, show }, col) => (
+        <div key={col} className={cn("min-w-0 flex-1 flex-col gap-2.5", show)}>
+          {[0, 1, 2].map((row) => (
+            <div
+              key={row}
+              className={cn(
+                "animate-pulse rounded-lg bg-skel",
+                heights[(from + row) % heights.length],
+              )}
+            />
+          ))}
+        </div>
+      ))}
     </div>
-  );
-}
-
-function Divider({ className }: { className?: string }) {
-  // Full-height hairline with a 1px white bevel to its right (Figma node 12:162).
-  return (
-    <div
-      className={cn(
-        "w-px shrink-0 self-stretch bg-[#e3e5e8] shadow-[1px_0_0_0_rgba(255,255,255,0.9)]",
-        className,
-      )}
-      aria-hidden
-    />
   );
 }
 
 const POPOVER_SHADOW =
   "shadow-[0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04),0_14px_36px_-10px_rgba(0,0,0,0.12)]";
 
-/** Paper node 8B-0 — Recently sort trigger */
-const SORT_TRIGGER_SHADOW =
-  "shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04),0_0_0_1px_rgba(232,232,232,0.6),0_3px_9px_0_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)]";
-
-/** Paper node 6X-0 — category scroll fade (38px) */
-const CATEGORY_EDGE_FADE = "w-[38px] from-[#f7f7f7]";
+/** Scroll fade on the chip rail — matches the canvas it sits on. */
+const CATEGORY_EDGE_FADE = "w-10 from-canvas";
 
 function PillRail({
   categories,
@@ -1017,10 +1143,20 @@ function PillRail({
   }, [categories]);
 
   return (
-    <div className={cn("relative min-w-0 self-stretch", className)}>
+    <div className={cn("relative min-w-0", className)}>
+      {/* One line, always. Tight padding and a 0.5rem gap are what let all
+          twelve fit without scrolling on a normal desktop; past that it
+          scrolls under the edge fades rather than wrapping.
+
+          `overflow-x: auto` computes the cross axis to `auto` as well — there
+          is no way to scroll one axis and leave the other visible — so the
+          scroller was clipping the chips' drop shadows flat against its top
+          and bottom edges. The padding gives the shadow room inside the clip
+          box and the matching negative margin keeps the row's outer size and
+          the chips' position unchanged. */}
       <div
         ref={scrollRef}
-        className="flex h-full items-center gap-2 overflow-x-auto px-2 py-3.5 [scrollbar-width:none] sm:gap-3 sm:px-0 sm:py-3.5 [&::-webkit-scrollbar]:hidden"
+        className="-mx-1.5 -my-2 flex items-center gap-2 overflow-x-auto px-1.5 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         <Pill
           label="All"
@@ -1041,14 +1177,14 @@ function PillRail({
       {/* Paper 6X-0 — edge fades when the rail scrolls */}
       <div
         className={cn(
-          "pointer-events-none absolute inset-y-0 left-0 z-[1] bg-gradient-to-r to-transparent transition-opacity duration-200",
+          "pointer-events-none absolute -inset-y-2 -left-1.5 z-[1] bg-gradient-to-r to-transparent transition-opacity duration-200",
           CATEGORY_EDGE_FADE,
           edges.left ? "opacity-100" : "opacity-0",
         )}
       />
       <div
         className={cn(
-          "pointer-events-none absolute inset-y-0 right-0 z-[1] bg-gradient-to-l to-transparent transition-opacity duration-200",
+          "pointer-events-none absolute -inset-y-2 -right-1.5 z-[1] bg-gradient-to-l to-transparent transition-opacity duration-200",
           CATEGORY_EDGE_FADE,
           edges.right ? "opacity-100" : "opacity-0",
         )}
@@ -1074,11 +1210,19 @@ function Pill({
       onClick={onClick}
       onPointerEnter={onPrefetch}
       onFocus={onPrefetch}
+      aria-pressed={active}
       className={cn(
-        "flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3.5 py-2 text-sm tracking-tight shadow-[0_0_0_0.5px_rgba(0,0,0,0.09),0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100 sm:px-3.5 sm:py-2.5",
+        "flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-[0.8125rem] font-medium tracking-tight",
+        CHIP_SHADOW,
+        // Weight is constant; only the fill and the ink move.
+        "transition-[background-color,color,transform] duration-150 ease-out",
+        "active:scale-[0.96] motion-reduce:active:scale-100",
+        FOCUS_RING,
         active
-          ? "bg-[#1f2123] text-[#eaebeb]"
-          : "bg-[#f2f2f2] text-[#707275] hover:bg-[#ececec]",
+          ? "bg-chip-on text-chip-on-fg"
+          // ink-2, not ink-3: on a chip this light the old #707275 came in at
+          // 4.31:1, under AA. Lightness is the only channel that moved.
+          : "bg-chip text-ink-2 hover:bg-chip-hover hover:text-ink",
       )}
     >
       {label}
@@ -1109,117 +1253,72 @@ function SortMenu({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Sort: ${SORT_LABELS[value]}`}
         className={cn(
-          "flex items-center justify-between overflow-hidden rounded-[22px] bg-[#f9f9fa] p-2.5 text-sm tracking-[-0.015em] text-[#1f2123]",
+          "flex h-9 items-center justify-between overflow-hidden rounded-[1.375rem] bg-shell px-3 text-[0.8125rem] font-medium tracking-tight text-ink",
           SORT_MENU_WIDTH,
           SORT_TRIGGER_SHADOW,
+          "transition-[background-color,transform] duration-150 ease-out",
+          "hover:bg-panel active:scale-[0.96] motion-reduce:active:scale-100",
+          FOCUS_RING,
         )}
       >
         <span className="whitespace-nowrap">{SORT_LABELS[value]}</span>
         <ChevronDown
           className={cn(
-            "size-3.5 shrink-0 text-[#5c5c5e] transition-transform",
+            "size-3.5 shrink-0 text-ink-2 transition-transform duration-150 ease-out",
             open && "rotate-180",
           )}
+          aria-hidden
         />
       </button>
       <AnimatePresence>
         {open ? (
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: -4 }}
+            role="menu"
+            initial={{ opacity: 0, scale: 0.97, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: -4 }}
-            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+            exit={{ opacity: 0, scale: 0.97, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top right" }}
             className={cn(
-              "absolute right-0 top-full z-50 mt-1.5 overflow-hidden rounded-xl bg-white p-1",
+              "absolute right-0 top-full z-50 mt-1.5 overflow-hidden rounded-xl bg-panel p-1",
               SORT_MENU_WIDTH,
               POPOVER_SHADOW,
             )}
           >
-            {SORT_ORDER.map((k) => {
-              const active = value === k;
+            {SORT_OPTIONS.map((k) => {
+              const selected = value === k;
               return (
                 <button
                   key={k}
                   type="button"
+                  role="menuitemradio"
+                  aria-checked={selected}
                   onPointerEnter={() => onPrefetch?.(k)}
                   onFocus={() => onPrefetch?.(k)}
                   onClick={() => {
                     onChange(k);
                     setOpen(false);
                   }}
-                  className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm tracking-[-0.015em] transition-colors hover:bg-[#f2f2f2]"
+                  className={cn(
+                    "flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-left text-[0.8125rem] font-medium tracking-tight",
+                    "transition-colors duration-150 ease-out hover:bg-chip",
+                    FOCUS_RING,
+                    selected ? "text-ink" : "text-ink-2",
+                  )}
                 >
-                  <span
-                    className={active ? "text-[#1f2123]" : "text-[#707275]"}
-                  >
-                    {SORT_LABELS[k]}
-                  </span>
-                  {active ? (
-                    <Check
-                      className="size-4 shrink-0 text-[#1f2123]"
-                      strokeWidth={2}
-                    />
+                  <span>{SORT_LABELS[k]}</span>
+                  {selected ? (
+                    <Check className="size-4 shrink-0 text-ink" strokeWidth={2} />
                   ) : (
                     <span className="size-4 shrink-0" aria-hidden />
                   )}
                 </button>
               );
             })}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function GitHubIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-      className={className}
-    >
-      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12Z" />
-    </svg>
-  );
-}
-
-function GitHubStarLink() {
-  const [hovered, setHovered] = useState(false);
-
-  return (
-    <div
-      className="relative shrink-0"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <a
-        href={GITHUB_REPO_URL}
-        target="_blank"
-        rel="noreferrer"
-        aria-label="Star on GitHub"
-        className={cn(
-          "flex size-[38px] items-center justify-center overflow-hidden rounded-xl bg-white text-[#1f2123] transition-transform active:scale-[0.98] motion-reduce:active:scale-100",
-          TAG_SEGMENT_SHADOW,
-        )}
-      >
-        <GitHubIcon className="size-[18px]" />
-      </a>
-
-      <AnimatePresence>
-        {hovered ? (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.96 }}
-            transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
-            style={{ transformOrigin: "top right" }}
-            className="pointer-events-none absolute right-0 top-full z-50 mt-2 whitespace-nowrap rounded-lg bg-[#1f2123] px-2.5 py-1.5 text-xs font-medium text-white shadow-[0_6px_20px_-6px_rgba(0,0,0,0.35)]"
-          >
-            Star on GitHub
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -1298,7 +1397,7 @@ function StaticFeedCard({
     "";
 
   return (
-    <div className="relative block overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]">
+    <div className="relative block overflow-hidden rounded-lg border border-line bg-skel">
       <div className="relative w-full" style={{ aspectRatio }}>
         {src ? (
           <Image
@@ -1416,7 +1515,7 @@ function MasonryCard({
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
       className={cn(
-        "group relative block cursor-pointer overflow-hidden rounded-lg border border-[#e3e5e8] bg-[#ededef]",
+        "group relative block cursor-pointer overflow-hidden rounded-lg border border-line bg-skel",
         suspended && "z-[60]",
       )}
       style={{ boxShadow: "none" }}
@@ -1609,9 +1708,9 @@ function EmptyState({
         : "New posts will show up here.";
 
   return (
-    <div className="flex w-full flex-1 flex-col items-center justify-center bg-[#f7f7f7] py-16 text-center">
-      <h2 className="text-base font-medium text-[#1f2123]">{title}</h2>
-      <p className="mt-1 max-w-sm text-sm text-[#707275]">{detail}</p>
+    <div className="flex w-full flex-1 flex-col items-center justify-center bg-canvas py-16 text-center">
+      <h2 className="text-base font-medium text-ink text-balance">{title}</h2>
+      <p className="mt-1 max-w-sm text-sm text-ink-2 text-balance">{detail}</p>
     </div>
   );
 }
@@ -1635,7 +1734,7 @@ function ResultsBar({
   onEdit: () => void;
 }) {
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#e8e8ea] bg-white px-3 py-2.5 shadow-[0_1px_2px_0_rgba(0,0,0,0.03)]">
+    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-panel px-3 py-2.5 shadow-[0_1px_2px_0_rgba(0,0,0,0.03)]">
       <button
         type="button"
         onClick={onEdit}
@@ -1643,16 +1742,16 @@ function ResultsBar({
         aria-label={`Change search: ${search.label}`}
       >
         <Search
-          className="size-4 shrink-0 text-[#8a8c8f]"
+          className="size-4 shrink-0 text-ink-4"
           strokeWidth={1.8}
           aria-hidden
         />
-        <span className="truncate text-sm font-medium tracking-tight text-[#1f2123]">
+        <span className="truncate text-sm font-medium tracking-tight text-ink">
           {search.label}
         </span>
       </button>
 
-      <span className="shrink-0 text-sm tabular-nums text-[#8a8c8f]">
+      <span className="shrink-0 text-sm tabular-nums text-ink-2">
         {count === null
           ? "searching\u2026"
           : `${count} ${count === 1 ? "design" : "designs"}`}
@@ -1663,7 +1762,7 @@ function ResultsBar({
           {chips.map((chip) => (
             <span
               key={chip}
-              className="rounded-full bg-[#f2f2f3] px-2 py-0.5 text-[11px] font-medium tracking-tight text-[#707275]"
+              className="rounded-full bg-chip px-2 py-0.5 text-[11px] font-medium tracking-tight text-ink-2"
             >
               {chip}
             </span>
@@ -1674,7 +1773,11 @@ function ResultsBar({
       <button
         type="button"
         onClick={onClear}
-        className="ml-auto flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs font-medium tracking-tight text-[#707275] transition-colors hover:bg-[#f2f2f3] hover:text-[#1f2123]"
+        className={cn(
+          "ml-auto flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-medium tracking-tight text-ink-2",
+          "transition-colors duration-150 ease-out hover:bg-chip hover:text-ink",
+          FOCUS_RING,
+        )}
       >
         Clear
         <X className="size-3.5" strokeWidth={2.2} aria-hidden />

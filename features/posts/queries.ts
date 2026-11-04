@@ -20,13 +20,28 @@ import { searchCorpus } from "@/lib/corpus/search";
 import { similarCorpusPosts } from "@/lib/corpus/similar";
 import type { FacetKind } from "./search-filter";
 
-export type FeedSort = "recent" | "oldest" | "featured" | "hidden_gems";
+/**
+ * Two independent axes, not one. `featured` / `hiddenGems` are *subsets* of the
+ * recent order (see `lib/corpus/index.ts`), so pairing them with an ordering is
+ * well defined — the old single `FeedSort` union made them look mutually
+ * exclusive with "Oldest" when they never were.
+ */
+export type FeedView = "all" | "featured" | "hidden_gems";
+export type FeedOrder = "recent" | "oldest";
+/**
+ * Which kind of thing the feed is showing. A post is a website entry when it
+ * has a `siteUrl` and a design otherwise — the two never mix in one grid,
+ * because they are different cards with different interactions.
+ */
+export type FeedSurface = "designs" | "websites";
 
 export type PostListItem = {
   id: string;
   title: string | null;
   caption: string | null;
   sourceUrl: string;
+  /** Live site for the Websites surface; null for everything else. */
+  siteUrl: string | null;
   source:
     | "x"
     | "threads"
@@ -91,25 +106,41 @@ export async function getRecentPosts(
     limit?: number;
     offset?: number;
     category?: string | null;
-    sort?: FeedSort;
+    view?: FeedView;
+    order?: FeedOrder;
+    surface?: FeedSurface;
   } = {},
 ): Promise<PostListItem[]> {
   const limit = opts.limit ?? 24;
   const offset = Math.max(0, opts.offset ?? 0);
-  const sort = opts.sort ?? "recent";
+  const view = opts.view ?? "all";
+  const direction = opts.order ?? "recent";
+  const surface = opts.surface ?? "designs";
 
   try {
     const index = await getCorpusIndex();
     // Gallery "Recently" = newest additions first (createdAt), not the source
     // tweet/pin date — otherwise old X posts land at the bottom when published.
     let order =
-      sort === "oldest"
-        ? index.oldest
-        : sort === "featured"
-          ? index.featured
-          : sort === "hidden_gems"
-            ? index.hiddenGems
-            : index.recent;
+      view === "featured"
+        ? index.featured
+        : view === "hidden_gems"
+          ? index.hiddenGems
+          : index.recent;
+
+    if (direction === "oldest") {
+      // `index.oldest` is the prebuilt reverse of the whole set; the two
+      // curated views are a few hundred positions, so reversing a copy costs
+      // nothing and saves carrying two more arrays in the snapshot.
+      order = view === "all" ? index.oldest : [...order].reverse();
+    }
+
+    // Surface first — it's the coarsest cut and the cheapest.
+    const isWebsite = index.websitePositions;
+    order =
+      surface === "websites"
+        ? order.filter((position) => isWebsite.has(position))
+        : order.filter((position) => !isWebsite.has(position));
 
     if (opts.category && opts.category !== "all") {
       const inCategory = index.byFacet.category.get(opts.category);
@@ -340,6 +371,7 @@ type FallbackRow = {
   title: string | null;
   caption: string | null;
   sourceUrl: string;
+  siteUrl: string | null;
   source: PostListItem["source"];
   hasVideo: boolean;
   autoplayInFeed: boolean;
@@ -372,7 +404,8 @@ async function feedPageFallback(
 
   const result = await db.execute(sql`
     select
-      p.id, p.title, p.caption, p.source_url as "sourceUrl", p.source,
+      p.id, p.title, p.caption, p.source_url as "sourceUrl",
+      p.site_url as "siteUrl", p.source,
       p.has_video as "hasVideo", p.autoplay_in_feed as "autoplayInFeed",
       p.image_count as "imageCount", p.published_at as "publishedAt",
       p.interaction,
@@ -388,6 +421,7 @@ async function feedPageFallback(
       order by mm.position asc limit 1
     ) m on true
     where p.published = true
+      and p.site_url is null
     ${categoryFilter}
     order by p.created_at desc, p.published_at desc nulls last
     limit ${limit} offset ${offset}
@@ -403,6 +437,7 @@ async function feedPageFallback(
     title: row.title,
     caption: row.caption ? cleanCaptionForDisplay(row.caption) || null : null,
     sourceUrl: row.sourceUrl,
+    siteUrl: row.siteUrl ?? null,
     source: row.source,
     hasVideo: Boolean(row.hasVideo),
     autoplayInFeed: Boolean(row.autoplayInFeed),

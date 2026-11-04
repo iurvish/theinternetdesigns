@@ -48,6 +48,52 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Shell palette — authored in oklch so lightness is the only thing that moves
+ * when a pair fails contrast. One hue (258, the cool grey the borders and ink
+ * already sat on) across every step, so the ramp can't drift: the old literals
+ * were spread over H 197–286, which is why #eaebeb read faintly green next to
+ * #ededef. Resolved sRGB is within 1–2 units of the hexes these replace.
+ *
+ * Measured against the surfaces each one actually lands on:
+ *   ink    on shell 15.1:1 · on canvas 16.2:1   AAA
+ *   ink-2  on shell  5.5:1 · on chip    5.2:1   AA   (was #707275 → 4.31:1 on
+ *                                                     a chip, below AA; the
+ *                                                     repair is L only)
+ *   ink-3  on canvas 4.8:1                      AA   (placeholder, kbd)
+ *   ink-4  on shell  3.1:1                      non-text only — icons, never copy
+ */
+@theme {
+  /* #fafafa for both planes. The rail and the canvas no longer differ in
+     tone at all — the only thing between them is the fading rule in
+     `app-sidebar.tsx`, which is the point. Raised white controls still read
+     as liftable at this lightness (ΔL 0.015 plus their ring). */
+  --color-shell: oklch(0.985 0 0);
+  --color-canvas: oklch(0.985 0 0);
+  --color-panel: oklch(1 0 0);
+  /* Pulled up from 0.921 toward white: against a white canvas the old rule
+     read as a hard dark edge. 0.952 still separates the surfaces but stops
+     the line from being the loudest thing on the page. */
+  --color-line: oklch(0.952 0.003 258);
+  --color-line-soft: oklch(0.969 0.002 258);
+  /* Controls need a border you can actually see. `line` is tuned for long page
+     rules on #fafafa and disappears around a 2rem pill, so buttons, inputs and
+     cards take this one step darker. */
+  --color-line-strong: oklch(0.922 0.004 258);
+  --color-ink: oklch(0.247 0.005 258);
+  --color-ink-2: oklch(0.505 0.005 258);
+  --color-ink-3: oklch(0.551 0.005 258);
+  --color-ink-4: oklch(0.639 0.005 258);
+  /* Filled input on the shell. ink-3 lands at 3.97:1 here — under AA — so the
+     placeholder uses ink-2 (4.81:1) and ink-3 is kept off this surface. */
+  --color-field: oklch(0.935 0.003 258);
+  --color-chip: oklch(0.961 0.0015 258);
+  --color-chip-hover: oklch(0.944 0.003 258);
+  --color-chip-on: oklch(0.247 0.005 258);
+  --color-chip-on-fg: oklch(0.939 0.0015 258);
+  --color-skel: oklch(0.947 0.003 258);
+}
+
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -64,8 +110,9 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  /* Tracks --color-line so shadcn primitives don't keep the old darker rule. */
+  --border: oklch(0.952 0.003 258);
+  --input: oklch(0.952 0.003 258);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -126,11 +173,15 @@
     /* Site-wide Inter with a -1.5% tracking for a tighter, modern rhythm. */
     letter-spacing: -0.015em;
     color-scheme: light;
-    background-color: #f7f7f7;
+    /* Shell, not canvas: overscroll past either end of the page should reveal
+       the sidebar's tone, which runs the full height. */
+    background-color: var(--color-shell);
   }
   body {
-    @apply text-foreground;
-    background-color: #f7f7f7;
+    @apply text-ink;
+    background-color: var(--color-shell);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;
